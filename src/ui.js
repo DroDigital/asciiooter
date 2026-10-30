@@ -144,32 +144,45 @@
     return { x: x0, y: y0, w: m.w, h: m.h };
   };
 
-  // ---- creature preview: sample a shape function straight into cells ----
+  // ---- creature preview: sample a model straight into cells ----
+  const PO = { d: 1, m: 0, e: 1, k: 1 };
   UI.drawShape = function (def, x0, y0, wc, hc, t, col) {
     const set = GL.sets[def.set || 'sigilA'];
-    const fake = { id: 7, data: { mimic: 'wretch', shield: false, px: 0, gaze: 1, mouth: 0.5, surf: 1 }, state: 'chase', st: 0, walk: t * 5, vis: 1, h: def.h, w: def.w, z: 0, player: null };
+    const fake = { id: 7, data: { mimic: 'wretch', shield: false, px: 0, gaze: 1, mouth: 0.5, surf: 1 }, state: 'chase', st: 0, walk: t * 4, vis: 1, h: def.h, w: def.w, z: 0, rel: Math.sin(t * 0.5) * 0.6, hp: 1, maxHp: 1, kind2: 'books', player: null };
     const hs = hc * 4, ws = wc * 2;
     const aspect = (DSP.cellW / 2) / (DSP.cellH / 4);
-    const worldW = (ws * aspect) / hs;
+    const scale = def.h / hs;
+    const thick = def.thick || 0.1;
+    const cr = [0, 0, 0];
     for (let cy = 0; cy < hc; cy++)
       for (let cx = 0; cx < wc; cx++) {
-        let mask = 0, emis = 0, sum = 0;
+        let mask = 0, n = 0, emis = 0;
+        cr[0] = cr[1] = cr[2] = 0;
         for (let k = 0; k < 8; k++) {
           const sx = cx * 2 + (k & 1) + 0.5, sy = cy * 4 + (k >> 1) + 0.5;
-          const u = ((sx / ws) * 2 - 1) * (worldW / (def.w / def.h)), v = sy / hs;
-          if (Math.abs(u) > 1) continue;
-          const val = def.shape(u, v, fake, t);
-          if (val > 0) {
-            mask |= 1 << k;
-            sum += Math.min(1, val);
-            if (val > 1) emis++;
-          }
+          const X = (sx - ws / 2) * scale * aspect, Y = sy * scale;
+          if (Math.abs(X) > def.w / 2) continue;
+          PO.d = 1;
+          PO.m = 0;
+          PO.e = 1;
+          PO.k = 1;
+          def.model(X, Y, fake, t, PO);
+          if (PO.d >= 0) continue;
+          const m = def.mats[PO.m] || def.mats[0];
+          const sh = m.e ? 0.6 + 0.4 * PO.e : (0.35 + 0.65 * Math.min(1, -PO.d / thick)) * PO.k * (1.05 - Y / def.h * 0.3);
+          const c = m.e || m.c;
+          cr[0] += c[0] * sh;
+          cr[1] += c[1] * sh;
+          cr[2] += c[2] * sh;
+          if (m.e) emis++;
+          mask |= 1 << k;
+          n++;
         }
         if (!mask) continue;
-        const c = emis > 1 ? def.emit || col : col;
-        const g = mask === 255 ? set.buckets[Math.min(5, (sum / 8) * 6) | 0][((cx * 7 + cy * 3 + ((t * 6) | 0)) % 5) % Math.max(1, set.buckets[Math.min(5, (sum / 8) * 6) | 0].length)] : set.lut[mask];
-        UI.put(x0 + cx, y0 + cy, g, emis > 1 ? c : [c[0] * (0.5 + sum / 16), c[1] * (0.5 + sum / 16), c[2] * (0.5 + sum / 16)], null, emis > 1 ? 0.8 : 0);
+        const g = mask === 255 ? set.ramp[Math.min(set.ramp.length - 1, Math.max(1, Math.round(((cr[0] + cr[1] + cr[2]) / (3 * n)) * set.ramp.length)))] : set.lut[mask];
+        UI.put(x0 + cx, y0 + cy, g, [(cr[0] / n) * 1.3, (cr[1] / n) * 1.3, (cr[2] / n) * 1.3], null, emis > 1 ? 0.7 : 0);
       }
+    void col;
   };
 
   // ---- menus ----
@@ -214,49 +227,12 @@
     return chosen;
   };
 
-  // ---- the weapon in your hands ----
-  UI.viewmodel = function (g) {
+  // Charge meter for weapons that are held to charge.
+  UI.chargeBar = function (g) {
     const P = g.player, w = P.weapon();
-    const art = w.art, h = art.length, wd = art[0].length;
-    const R = Rw(), cols = C();
-    const sp = Math.hypot(P.vx, P.vy);
-    const bobX = Math.round(Math.sin(P.walk) * Math.min(1, sp / 4) * 1.6);
-    const bobY = Math.round(Math.abs(Math.cos(P.walk)) * Math.min(1, sp / 4) * 1.2);
-    const rec = Math.round(P.recoil * 2.2) + (P.switchT > 0 ? Math.round(P.switchT * 18) : 0);
-    const x0 = Math.floor(cols * 0.6 - wd / 2) + bobX, y0 = R - 3 - h + bobY + rec;
-    const light = g.lightAt(P.x, P.y) + (P.lanternOn ? 0.6 : 0.1) + P.recoil * 1.2;
-    const k = G.clamp(light, 0.25, 1.3);
-    const ink = g.level.st.ink;
-    for (let j = 0; j < h; j++) {
-      const row = art[j], a0 = row.search(/\S/), a1 = row.length - 1 - row.split('').reverse().join('').search(/\S/);
-      for (let i = 0; i < wd; i++) {
-        const c = row.charAt(i);
-        if (c === ' ') {
-          if (i > a0 && i < a1) UI.put(x0 + i, y0 + j, 0, [0, 0, 0], ink ? [0.8, 0.78, 0.74] : [0.015, 0.012, 0.01]);
-          continue;
-        }
-        const hot = c === '*' || c === '@';
-        const col = hot ? (P.recoil > 0.2 || w.beam ? [1, 0.95, 0.7] : [w.col[0] * 0.8, w.col[1] * 0.8, w.col[2] * 0.8]) : ink ? [0.1, 0.08, 0.08] : [w.col[0] * k * (0.65 + 0.35 * (j / h)), w.col[1] * k * (0.6 + 0.3 * (j / h)), w.col[2] * k * 0.8];
-        const bg = ink ? [0.85, 0.83, 0.78] : [0.03, 0.025, 0.02];
-        UI.put(x0 + i, y0 + j, GL.ch(c), col, bg, hot ? 0.9 : 0);
-      }
-    }
-    // muzzle flash
-    if (P.recoil > 0.3 && !w.beam) {
-      const mx = x0 + Math.floor(wd / 2), my = y0 - 1;
-      const fl = [['\\', '|', '/'], ['-', '*', '-'], ['/', '|', '\\']];
-      const big = P.recoil > 0.7;
-      for (let j = 0; j < 3; j++)
-        for (let i = 0; i < 3; i++) UI.put(mx - 1 + i, my - 2 + j, GL.ch(fl[j][i]), [1, 0.9, 0.55], null, 1);
-      if (big) {
-        UI.put(mx - 3, my - 1, GL.id('sym:star'), [1, 0.8, 0.4], null, 1);
-        UI.put(mx + 3, my - 1, GL.id('sym:star'), [1, 0.8, 0.4], null, 1);
-      }
-    }
-    if (w.charge && P.charge > 0) {
-      const f = P.charge / w.charge;
-      UI.bar(Math.floor(cols / 2) - 6, Math.floor(R / 2) + 2, 12, f, f >= 0.98 ? [1, 0.3, 0.3] : [0.9, 0.5, 0.5], [0.2, 0.1, 0.1], f >= 0.98 ? 1 : 0.3);
-    }
+    if (!w.charge || P.charge <= 0) return;
+    const f = P.charge / w.charge;
+    UI.bar(Math.floor(C() / 2) - 6, Math.floor(Rw() / 2) + 2, 12, f, f >= 0.98 ? [1, 0.3, 0.3] : [0.9, 0.5, 0.5], [0.2, 0.1, 0.1], f >= 0.98 ? 1 : 0.3);
   };
 
   UI.crosshair = function (g) {

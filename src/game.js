@@ -18,9 +18,9 @@
 
   const Game = (G.Game = {
     state: 'title', time: 0, frame: 0, nextId: 1,
-    ents: [], parts: [], voids: [], omens: [], bars: [], whispers: [], msgs: [], lights: [], dynLights: [],
+    ents: [], parts: [], voids: [], omens: [], bars: [], whispers: [], msgs: [], lights: [], dynLights: [], lines: [], rings: [], waves: [],
     fx: { shake: 0, flash: 0, flashCol: [1, 1, 1], hitstop: 0, corrupt: 0, wallWarp: 0, collapse: 0, collapseTarget: 0, fovKick: 0, hitMarker: 0, invert: 0, aberr: 0 },
-    st: { sel: 0 }, thirdPerson: false, cam: { x: 0, y: 0, a: 0, pitch: 0, z: 0.5 }, aimA: 0,
+    st: { sel: 0 }, vm: { x: 0, y: 0, rot: 0, sway: 0, show: false, charge: 0 }, thirdPerson: false, cam: { x: 0, y: 0, a: 0, pitch: 0, z: 0.5 }, aimA: 0,
     gaze: 0, choir: 0, lanceLoop: false, prompt: null, titleT: 0, fpsShow: 0, msShow: 0,
   });
 
@@ -122,11 +122,70 @@
       if (d < r * 0.5 || (d < r && this.level.los(e.x, e.y, x, y))) e.alerted = true;
     }
   };
+  const FIRE = [[1, 1, 0.92], [1, 0.88, 0.45], [1, 0.55, 0.15], [0.75, 0.18, 0.04], [0.2, 0.04, 0.02]];
+  Game.FIRE = FIRE;
   Game.part = function (o) {
-    if (this.parts.length > 1100) return;
-    const p = { x: o.x, y: o.y, z: o.z || 0, vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0, grav: o.grav || 0, life: o.life || 0.5, g: o.g, r: o.r, gr: o.gr, b: o.b, glow: o.glow || 0, noDepth: o.noDepth, fade: o.fade, bg: o.bg };
+    if (this.parts.length > 1400) return null;
+    const p = {
+      x: o.x, y: o.y, z: o.z || 0, vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0, grav: o.grav || 0, drag: o.drag || 0, life: o.life || 0.5,
+      g: o.g === undefined ? GL.id('sym:dot') : o.g, r: o.r === undefined ? 1 : o.r, gr: o.gr === undefined ? 1 : o.gr, b: o.b === undefined ? 1 : o.b,
+      glow: o.glow || 0, noDepth: o.noDepth, fade: o.fade, add: o.add, ramp: o.ramp, lit: o.lit, streak: o.streak, size: o.size || 0, grow: o.grow || 0,
+      splat: o.splat, buoy: o.buoy || 0, drip: o.drip,
+    };
     p.max = p.life;
     this.parts.push(p);
+    return p;
+  };
+  // Sparks: short-lived streaks with a hot colour ramp.
+  Game.sparks = function (x, y, z, n, speed, dirX, dirY, col) {
+    for (let i = 0; i < n; i++) {
+      const a = G.rand.range(0, G.TAU), s = G.rand.range(0.4, 1) * speed;
+      this.part({
+        x, y, z, vx: Math.cos(a) * s + (dirX || 0) * speed * 0.6, vy: Math.sin(a) * s + (dirY || 0) * speed * 0.6, vz: G.rand.range(0.5, 3),
+        grav: 9, drag: 1.5, life: G.rand.range(0.15, 0.45), streak: 0.035, add: true, glow: 0.9, ramp: col ? null : FIRE,
+        r: col ? col[0] : 1, gr: col ? col[1] : 1, b: col ? col[2] : 1,
+      });
+    }
+  };
+  Game.smoke = function (x, y, z, n, size, col, rise) {
+    for (let i = 0; i < n; i++)
+      this.part({
+        x: x + G.rand.range(-0.15, 0.15), y: y + G.rand.range(-0.15, 0.15), z, vx: G.rand.range(-0.3, 0.3), vy: G.rand.range(-0.3, 0.3), vz: rise || 0.6,
+        drag: 1.2, life: G.rand.range(0.6, 1.4), size: size * G.rand.range(0.7, 1.3), grow: size * 1.5, g: -1, lit: true,
+        r: col ? col[0] : 0.5, gr: col ? col[1] : 0.48, b: col ? col[2] : 0.45,
+      });
+  };
+  // Ink: droplets that fall and leave stains where they land.
+  Game.splatter = function (x, y, z, n, col, speed, dirX, dirY, em) {
+    for (let i = 0; i < n; i++) {
+      const a = G.rand.range(0, G.TAU), s = G.rand.range(0.3, 1) * speed;
+      this.part({
+        x, y, z, vx: Math.cos(a) * s + (dirX || 0) * speed * 0.8, vy: Math.sin(a) * s + (dirY || 0) * speed * 0.8, vz: G.rand.range(0.5, 2.5),
+        grav: 9, life: 1.5, g: GL.ch(G.rand.pick(['.', ',', "'", '`'])), r: col[0] * 1.4 + 0.1, gr: col[1] * 1.4 + 0.05, b: col[2] * 1.4 + 0.05,
+        splat: { c: col, em: em || 0 }, glow: em ? 0.5 : 0, fade: false,
+      });
+    }
+  };
+  Game.footstep = function (water) {
+    const P = this.player;
+    if (water) this.ring(P.x, P.y, 0.02, 0.05, 0.6, 0.7, [0.4, 0.85, 0.9], { water: true });
+    else if (!this.level.st.ink) this.smoke(P.x, P.y, 0.05, 1, 0.12, [0.45, 0.4, 0.35], 0.15);
+  };
+  Game.decal = function (x, y, z, r, col, a, em, wall) {
+    if (!this.level) return;
+    this.level.addDecal({ x, y, z: z || 0, r, c: col, a: a === undefined ? 0.85 : a, em: em || 0, wall: !!wall, s: G.rand.range(0, 100) });
+  };
+  Game.line = function (x0, y0, z0, x1, y1, z1, c, life, o) {
+    if (this.lines.length > 60) this.lines.shift();
+    this.lines.push(Object.assign({ x0, y0, z0, x1, y1, z1, c, life, max: life }, o || {}));
+  };
+  Game.ring = function (x, y, z, r0, r1, life, c, o) {
+    if (this.rings.length > 40) this.rings.shift();
+    this.rings.push(Object.assign({ x, y, z, r0, r1, life, max: life, c, i: 1 }, o || {}));
+  };
+  Game.wave = function (x, y, str) {
+    this.waves.push({ x, y, t: 0, max: 0.7, str: str || 1 });
+    if (this.waves.length > 4) this.waves.shift();
   };
   Game.burst = function (x, y, z, n, col, glyphs, speed) {
     for (let i = 0; i < n; i++) {
@@ -149,6 +208,9 @@
       state: 'idle', st: 0, cd: G.rand.range(0.4, 1.4), flash: 0, walk: G.rand.range(0, 6), col: def.col, emit: def.emit, data: {}, seen: false,
     };
     if (o) Object.assign(e, o);
+    e.face = e.face === undefined ? G.rand.range(0, G.TAU) : e.face;
+    e.hitT = 0;
+    if (o && o.summon) e.spawnT = 1;
     if (def.init) def.init(e, this);
     this.ents.push(e);
     return e;
@@ -178,6 +240,8 @@
   Game.dissolve = function (e) {
     if (!e.alive) return;
     e.alive = false;
+    e.dying = true;
+    e.dieT = 0;
     this.burst(e.x, e.y, e.h * 0.5, 14, [0.6, 0.6, 0.7], 'sigil', 1.5);
     this.sound('flutter', e.x, e.y);
   };
@@ -233,6 +297,16 @@
     return { segs, t: maxT, hit: false };
   };
 
+  // Where shots visibly leave from: the weapon's muzzle in first person, the Reader's hand in third.
+  Game.muzzle = function (a) {
+    const c = this.cam, P = this.player;
+    if (!this.thirdPerson) {
+      const dx = Math.cos(c.a), dy = Math.sin(c.a);
+      return { x: c.x + dx * 0.55 - dy * 0.17, y: c.y + dy * 0.55 + dx * 0.17, z: c.z - 0.13 };
+    }
+    return { x: P.x + Math.cos(a) * 0.35 - Math.sin(P.a) * 0.2, y: P.y + Math.sin(a) * 0.35 + Math.cos(P.a) * 0.2, z: 0.62 };
+  };
+
   Game.hitscan = function (x, y, a, range, dmg, o) {
     o = o || {};
     const dx = Math.cos(a), dy = Math.sin(a);
@@ -257,25 +331,30 @@
     for (const h of use) total += this.damageEnemy(h.e, dmg, { x: x + dx * h.t, y: y + dy * h.t, dirX: dx, dirY: dy, knock: o.knock, tick: o.tick });
     const endT = !o.pierce && use.length ? use[0].t : tr.t;
     // visuals live in the unwrapped space the camera sees
-    if (o.tracer) {
-      for (let t = 0.8; t < endT; t += 0.55) this.part({ x: x + dx * t, y: y + dy * t, z: 0.48, g: GL.id('sym:dot'), r: o.tracer[0], gr: o.tracer[1], b: o.tracer[2], life: 0.07, glow: 0.6 });
-    }
+    const mz = this.muzzle(a);
+    const hz = mz.z + (0.48 - mz.z) * Math.min(1, endT / 3);
+    const ex = x + dx * endT, ey = y + dy * endT;
+    if (o.tracer) this.line(mz.x, mz.y, mz.z, ex, ey, hz, o.tracer, 0.09, { taper: true, head: true });
     if (o.beam) {
-      for (let t = 0.6; t < endT; t += 0.33) {
-        const w = Math.sin(t * 3 - this.time * 30) * 0.03;
-        this.part({ x: x + dx * t - dy * w, y: y + dy * t + dx * w, z: 0.47, g: GL.ch(G.rand.chance(0.5) ? '=' : '-'), r: 1, gr: 0.95, b: 0.6, life: 0.05, glow: 1 });
-      }
+      const jx = Math.sin(this.time * 40) * 0.02;
+      this.line(mz.x, mz.y, mz.z, ex + jx, ey - jx, hz, [1, 0.92, 0.6], 0.045, { w: 2, flicker: true });
+      this.line(mz.x, mz.y, mz.z, ex, ey, hz, [0.6, 0.35, 0.1], 0.045, { w: 1, glyph: GL.ch('=') });
       for (let k = 1; k <= 3; k++) {
         const t = (endT * k) / 3.5;
         this.dynLights.push({ x: x + dx * t, y: y + dy * t, r: 1, g: 0.85, b: 0.5, rad: 4, i: 0.9 });
       }
+      if (Math.random() < 0.5) this.sparks(ex - dx * 0.1, ey - dy * 0.1, hz, 2, 2.5, -dx, -dy);
     }
     if (o.rail) {
-      for (let t = 0.6; t < range; t += 0.3) this.part({ x: x + dx * t, y: y + dy * t, z: 0.48, g: GL.id('sa:' + ((t * 13) | 0) % 96), r: 1, gr: 0.25, b: 0.25, life: 0.45, glow: 1, noDepth: true });
+      this.line(mz.x, mz.y, mz.z, x + dx * range, y + dy * range, 0.5, [1, 0.25, 0.2], 0.55, { sigil: true, noDepth: true });
+      this.line(mz.x, mz.y, mz.z, x + dx * range, y + dy * range, 0.5, [1, 0.8, 0.7], 0.2, { w: 2 });
+      for (const h of use) this.ring(h.e.x, h.e.y, 0.5, 0.1, 1.2, 0.35, [1, 0.3, 0.2]);
     }
     if (!use.length && tr.hit && !o.beam) {
-      const hx = x + dx * (tr.t - 0.05), hy = y + dy * (tr.t - 0.05);
-      for (let i = 0; i < 3; i++) this.part({ x: hx, y: hy, z: 0.48 + G.rand.range(-0.1, 0.1), vx: -dx * G.rand.range(0.5, 2) + G.rand.range(-1, 1), vy: -dy * G.rand.range(0.5, 2) + G.rand.range(-1, 1), vz: G.rand.range(0, 2), grav: 6, g: GL.ch(G.rand.pick(['*', '.', "'", ','])), r: 1, gr: 0.8, b: 0.5, life: 0.3, glow: 0.5 });
+      const hx = x + dx * (tr.t - 0.04), hy = y + dy * (tr.t - 0.04);
+      this.sparks(hx, hy, hz, 4, 2.4, -dx, -dy);
+      this.smoke(hx, hy, hz, 1, 0.12, null, 0.4);
+      this.decal(hx + dx * 0.05, hy + dy * 0.05, hz, G.rand.range(0.05, 0.09), this.level.st.ink ? [0.05, 0.05, 0.05] : [0.04, 0.03, 0.025], 0.9, 0, true);
     }
     return total;
   };
@@ -290,6 +369,12 @@
     if (P.mods.lampDmg && P.lanternOn && this.distP(e) < P.lampRadius()) d *= 1 + P.mods.lampDmg;
     e.hp -= d;
     e.flash = o.tick ? Math.max(e.flash, 0.03) : 0.09;
+    if (!o.tick || e.hitT <= 0) {
+      e.hitT = 0.22;
+      const c = this.cam;
+      const side = (o.dirX || 0) * -Math.sin(c.a) + (o.dirY || 0) * Math.cos(c.a);
+      e.lean = G.clamp(side, -1, 1) * (e.def.heavy ? 0.3 : 1);
+    }
     e.alerted = true;
     if (e.state === 'idle') e.state = 'chase';
     if (o.knock && !e.def.heavy) {
@@ -297,9 +382,12 @@
       e.ky += (o.dirY || 0) * o.knock;
     }
     if (!o.tick || Math.random() < 0.15) {
-      const n = o.tick ? 1 : Math.min(6, 1 + Math.floor(d / 8));
-      for (let i = 0; i < n; i++)
-        this.part({ x: e.x, y: e.y, z: e.h * G.rand.range(0.3, 0.8), vx: G.rand.range(-2, 2) - (o.dirX || 0) * -1.5, vy: G.rand.range(-2, 2) - (o.dirY || 0) * -1.5, vz: G.rand.range(0, 2.5), grav: 7, g: GL.ch(G.rand.pick(['.', ',', "'", '`', ':'])), r: e.col[0] * 0.8, gr: e.col[1] * 0.5, b: e.col[2] * 0.5, life: 0.6 });
+      const n = o.tick ? 1 : Math.min(7, 2 + Math.floor(d / 8));
+      const blood = e.def.blood || [0.4, 0.05, 0.05];
+      const hz = (e.z || 0) + e.h * G.rand.range(0.35, 0.75);
+      const bx = e.x - (o.dirX || 0) * e.r * 0.5, by = e.y - (o.dirY || 0) * e.r * 0.5;
+      this.splatter(bx, by, hz, n, blood, 2.2, o.dirX, o.dirY, e.def.bloodEmit);
+      if (!o.tick) this.sparks(bx, by, hz, 2 + (n >> 1), 3, -(o.dirX || 0), -(o.dirY || 0), e.def.bloodEmit ? blood : null);
       if (this.frame - (this.lastHitSnd || 0) > 2) {
         this.sound('hit', e.x, e.y);
         this.lastHitSnd = this.frame;
@@ -335,7 +423,27 @@
     const P = this.player, def = e.def;
     if (def.phantom) return this.dissolve(e);
     const glyphs = def.set === 'sigilA' || def.set === 'sigilB' || def.set === 'box' ? 'sigil' : 'letters';
-    this.burst(e.x, e.y, e.h * 0.55, Math.min(30, 10 + e.h * 8), def.boss ? [1, 0.3, 0.3] : e.col, glyphs, 2.6);
+    e.dying = true;
+    e.dieT = 0;
+    const blood = def.blood || [0.35, 0.05, 0.05];
+    this.decal(e.x, e.y, 0, Math.min(1.2, 0.3 + e.r * 0.9), blood, 0.9, def.bloodEmit || 0);
+    this.splatter(e.x, e.y, (e.z || 0) + e.h * 0.5, 8, blood, 2.5, 0, 0, def.bloodEmit);
+    // the creature comes apart into its own letters, which drift up and away
+    const n = Math.min(40, 12 + Math.round(e.h * 10));
+    for (let i = 0; i < n; i++) {
+      const g = glyphs === 'sigil' ? GL.id((G.rand.chance(0.5) ? 'sa:' : 'sb:') + G.rand.int(0, 95)) : GL.ch(String.fromCharCode(65 + G.rand.int(0, 25)));
+      const c = def.boss ? [1, 0.3, 0.3] : e.col;
+      this.part({
+        x: e.x + G.rand.range(-e.w, e.w) * 0.35, y: e.y + G.rand.range(-0.2, 0.2), z: (e.z || 0) + G.rand.range(0.1, 1) * e.h,
+        vx: G.rand.range(-0.6, 0.6), vy: G.rand.range(-0.6, 0.6), vz: G.rand.range(0.2, 1.4), drag: 0.8, buoy: 0.6, life: G.rand.range(0.8, 1.8),
+        g, r: c[0] * 1.2, gr: c[1] * 1.2, b: c[2] * 1.2, glow: 0.35,
+      });
+    }
+    this.sparks(e.x, e.y, (e.z || 0) + e.h * 0.5, def.heavy ? 18 : 8, 3.5);
+    if (def.heavy) {
+      this.ring(e.x, e.y, 0.03, 0.2, 2.4, 0.5, [1, 0.5, 0.3]);
+      this.wave(e.x, e.y, 0.6);
+    }
     let ink = def.ink || 0;
     while (ink > 0) {
       const v = Math.min(ink, 4);
@@ -366,6 +474,12 @@
       if (d < rad + e.r) this.damageEnemy(e, dmg * (1 - (0.6 * Math.min(d, rad)) / rad), { knock: 5, dirX: (e.x - x) / (d || 1), dirY: (e.y - y) / (d || 1) });
     }
     this.voids.push({ x, y, r: rad, life: 0.45, max: 0.45 });
+    this.ring(x, y, 0.05, 0.3, rad * 1.6, 0.6, [0.9, 0.55, 1]);
+    this.ring(x, y, 0.6, 0.2, rad * 1.1, 0.45, [1, 0.85, 1], { glyph: GL.id('sym:star') });
+    this.sparks(x, y, 0.5, 30, 7, 0, 0, [0.9, 0.6, 1]);
+    this.smoke(x, y, 0.3, 8, 0.6, [0.35, 0.25, 0.45], 0.8);
+    this.decal(x, y, 0, rad * 0.55, [0.02, 0.01, 0.03], 0.8, 0);
+    this.wave(x, y, 1.2);
     this.shake(9);
     this.flash([0.9, 0.85, 1], 0.25);
     this.fx.invert = 0.6;
@@ -438,6 +552,9 @@
     this.bars = [];
     this.whispers = [];
     this.lights = [];
+    this.lines = [];
+    this.rings = [];
+    this.waves = [];
     this.bossRef = null;
     this.fx.collapse = 0;
     this.fx.collapseTarget = 0;
@@ -646,6 +763,25 @@
     const lowHp = playing && this.player.hp / this.player.maxHp < 0.3;
     d.vig = 0.5 + (lowHp ? 0.35 + 0.15 * Math.sin(this.time * 6) : 0);
     d.glow = 1;
+    const wv = d.waves;
+    wv.fill(0);
+    if (playing && this.state !== 'descend') {
+      for (let i = 0; i < this.waves.length && i < 4; i++) {
+        const w = this.waves[i];
+        R.project(w.x, w.y, 0.5, this._wp || (this._wp = {}));
+        if (this._wp.d <= 0.2) continue;
+        const k = w.t / w.max;
+        wv[i * 4] = this._wp.cx / this.dsp.cols;
+        wv[i * 4 + 1] = this._wp.cy / this.dsp.rows;
+        wv[i * 4 + 2] = k * 0.5;
+        wv[i * 4 + 3] = (1 - k) * w.str * (o.calm ? 0.3 : 1);
+      }
+    }
+    const hpK = playing ? this.player.hp / this.player.maxHp : 1;
+    const hurt = playing ? Math.max(0, this.player.hurtT) : 0;
+    d.sat = 1 - (hpK < 0.35 ? (0.35 - hpK) * 1.6 : 0) - (1 - luc) * 0.25;
+    d.tint = [1 + hurt * 0.15, 1 - hurt * 0.12, 1 - hurt * 0.12 + (1 - luc) * 0.06];
+    d.speed = playing && this.player.dashT > 0 && !o.calm ? 0.8 : Math.max(0, d.speed - dt * 6);
     f.fovKick = Math.max(0, f.fovKick - dt * 40);
     f.hitMarker -= dt;
   };
@@ -685,6 +821,26 @@
     this.aimA = Math.hypot(ax - P.x, ay - P.y) > 1 ? Math.atan2(ay - P.y, ax - P.x) : P.a;
   };
 
+  // The weapon in your hands: bob, sway, recoil, switching and dash tilt.
+  Game.updateViewmodel = function (dt) {
+    const v = this.vm, P = this.player;
+    v.show = !this.thirdPerson && (this.state === 'play' || this.state === 'descend') && P.alive;
+    const sp = Math.min(1, Math.hypot(P.vx, P.vy) / 4.4);
+    const turn = In.mdx * this.opts.sens * 0.0006 + In.turnAxis() * 0.02;
+    v.sway += (G.clamp(turn, -0.06, 0.06) - v.sway) * Math.min(1, dt * 10);
+    const bx = Math.sin(P.walk) * 0.018 * sp, by = Math.abs(Math.cos(P.walk)) * 0.025 * sp;
+    const idle = Math.sin(this.time * 1.6) * 0.006;
+    const rec = P.recoil;
+    const sw = Math.max(0, P.switchT) * 2.4;
+    const dash = P.dashT > 0 ? 1 : 0;
+    const w = P.weapon();
+    const shake = w.charge && P.charge > w.charge * 0.9 ? Math.sin(this.time * 70) * 0.003 : P.beaming ? Math.sin(this.time * 55) * 0.004 : 0;
+    v.x = bx - v.sway * 0.5 + rec * 0.01 + shake;
+    v.y = by + idle + rec * 0.06 + sw * 0.5 + dash * 0.05;
+    v.rot = -0.12 + v.sway * 1.2 - rec * 0.16 + dash * 0.12 + bx * 1.5;
+    v.charge = w.charge ? P.charge / w.charge : 0;
+  };
+
   // A reduced world update for transitions (particles keep falling, nothing attacks).
   Game.updateWorldLite = function (dt) {
     this.updateParticles(dt);
@@ -696,11 +852,22 @@
       const p = ps[i];
       p.life -= dt;
       if (p.life <= 0) continue;
+      if (p.drag) {
+        const k = Math.max(0, 1 - p.drag * dt);
+        p.vx *= k;
+        p.vy *= k;
+        p.vz *= k;
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vz -= p.grav * dt;
+      p.vz -= (p.grav - p.buoy) * dt;
       p.z += p.vz * dt;
+      if (p.grow) p.size += p.grow * dt;
       if (p.z < 0.02) {
+        if (p.splat) {
+          this.decal(p.x, p.y, 0, G.rand.range(0.04, 0.12), p.splat.c, 0.85, p.splat.em);
+          continue;
+        }
         p.z = 0.02;
         p.vz = 0;
         p.vx *= 0.7;
@@ -762,18 +929,33 @@
     let threat = 0;
     for (let i = 0; i < ents.length; i++) {
       const e = ents[i];
+      if (e.dying) {
+        e.dieT += dt / (e.def.heavy ? 1.2 : 0.75);
+        if (Math.random() < dt * 25) {
+          const c = e.def.blood || [1, 0.5, 0.2];
+          this.part({ x: e.x + G.rand.range(-0.3, 0.3) * e.w, y: e.y, z: (e.z || 0) + G.rand.range(0, 1) * e.h, vz: 0.8, buoy: 0.5, drag: 1, life: 0.6, g: GL.ch('*'), r: c[0] * 2 + 0.5, gr: c[1] * 2 + 0.3, b: c[2] * 2 + 0.1, add: true, glow: 0.8 });
+        }
+        if (e.dieT >= 1) e.dying = false;
+      }
       if (!e.alive) continue;
       e.flash -= dt;
+      e.hitT -= dt;
+      if (e.spawnT > 0) e.spawnT = Math.max(0, e.spawnT - dt * 2);
       if (e.kind === 'proj') {
         this.updateProj(e, dt);
         continue;
       }
       if (e.def.update) e.def.update(e, this, dt);
       if (!e.alive) continue;
+      if (e.def.fx) e.def.fx(e, this, dt);
       if (e.kind === 'enemy') {
         e.kx *= Math.max(0, 1 - dt * 7);
         e.ky *= Math.max(0, 1 - dt * 7);
         e.blocked = L.move(e, (e.vx + e.kx) * dt, (e.vy + e.ky) * dt, e.r, false);
+        const spd = Math.hypot(e.vx, e.vy);
+        const want = spd > 0.25 ? Math.atan2(e.vy, e.vx) : e.state !== 'idle' ? Math.atan2(P.y - e.y, P.x - e.x) : e.face;
+        e.face += G.angleDiff(e.face, want) * Math.min(1, dt * 7);
+        if (spd > 0.25) e.walk = (e.walk || 0) + dt * Math.min(spd, 6) * 2.6;
         if (e.state !== 'idle' && this.distP(e) < 14) threat += e.def.boss ? 4 : e.def.heavy ? 2 : 1;
       }
       const d = Math.hypot(e.x - P.x, e.y - P.y);
@@ -821,7 +1003,7 @@
         }
       }
     }
-    if (ents.length > 300 || this.frame % 120 === 0) this.ents = ents.filter((e) => e.alive);
+    if (ents.length > 300 || this.frame % 120 === 0) this.ents = ents.filter((e) => e.alive || e.dying);
     this.updateParticles(dt);
     // effects lifetimes
     for (const v of this.voids) v.life -= dt;
@@ -847,6 +1029,8 @@
     this.omens = this.omens.filter((o) => o.t > 0);
     for (const l of this.lights) l.life -= dt;
     this.lights = this.lights.filter((l) => l.life > 0);
+    this.updateEffects(dt);
+    this.ambient(dt);
     this.director(dt);
     // audio state
     A.setListener(P.x, P.y, P.a);
@@ -902,13 +1086,67 @@
         return this.projEnd(e, true);
       }
     }
-    if (e.glyph) this.part({ x: e.x, y: e.y, z: e.z, g: e.glyph, r: e.col[0], gr: e.col[1], b: e.col[2], life: 0.034, glow: 0.8, fade: false });
-    else if (this.dynLights.length < 10) this.dynLights.push({ x: e.x, y: e.y, r: e.col[0], g: e.col[1], b: e.col[2], rad: e.blast ? 4 : 2.2, i: 0.8 });
+    if (e.glyph) {
+      this.part({ x: e.x, y: e.y, z: e.z, g: e.glyph, r: e.col[0], gr: e.col[1], b: e.col[2], life: 0.034, glow: 0.8, fade: false });
+      if (this.frame % 2) this.part({ x: e.x, y: e.y, z: e.z, g: e.glyph, r: e.col[0] * 0.5, gr: e.col[1] * 0.5, b: e.col[2] * 0.6, life: 0.18, glow: 0.3, add: true });
+    } else if (Math.random() < 0.6) this.part({ x: e.x, y: e.y, z: e.z, vz: 0.3, life: 0.3, g: GL.ch(G.rand.chance(0.5) ? '.' : '*'), r: e.col[0], gr: e.col[1], b: e.col[2], add: true, glow: 0.6, size: e.blast ? 0.35 : 0 });
+    if (e.glyph) {
+      /* letters cast no light */
+    } else if (this.dynLights.length < 10) this.dynLights.push({ x: e.x, y: e.y, r: e.col[0], g: e.col[1], b: e.col[2], rad: e.blast ? 4 : 2.2, i: 0.8 });
   };
   Game.projEnd = function (e, hit) {
     e.alive = false;
     if (e.blast) return this.explode(e.x, e.y, e.blast, e.dmg);
-    if (hit) this.burst(e.x, e.y, e.z, e.glyph ? 2 : 4, e.col, e.glyph ? 'letters' : '*', 1.5);
+    if (hit) {
+      if (e.glyph) this.burst(e.x, e.y, e.z, 2, e.col, 'letters', 1.5);
+      else {
+        this.sparks(e.x, e.y, e.z, 6, 2.5, 0, 0, e.col);
+        this.ring(e.x, e.y, e.z, 0.05, 0.6, 0.25, e.col, { glyph: GL.id('sym:dot') });
+      }
+      this.addLight(e.x, e.y, e.col, 3, 1, 0.15);
+    }
+  };
+
+  Game.updateEffects = function (dt) {
+    for (const l of this.lines) l.life -= dt;
+    this.lines = this.lines.filter((l) => l.life > 0);
+    for (const r of this.rings) r.life -= dt;
+    this.rings = this.rings.filter((r) => r.life > 0);
+    for (const w of this.waves) w.t += dt;
+    this.waves = this.waves.filter((w) => w.t < w.max);
+  };
+
+  // Each stratum breathes its own particles into the lantern light.
+  Game.ambient = function (dt) {
+    const P = this.player, L = this.level, st = L.st;
+    this.ambT = (this.ambT || 0) - dt;
+    if (this.ambT > 0) return;
+    this.ambT = 0.03;
+    const a = G.rand.range(0, G.TAU), r = G.rand.range(0.5, 7);
+    const x = P.x + Math.cos(a) * r, y = P.y + Math.sin(a) * r;
+    if (L.solid(Math.floor(x), Math.floor(y))) return;
+    const H = st.ceilH;
+    const id = st.id;
+    if (id === 0) {
+      if (G.rand.chance(0.04)) this.part({ x, y, z: G.rand.range(0.3, H), vx: G.rand.range(-0.2, 0.2), vy: G.rand.range(-0.2, 0.2), vz: -0.15, life: 6, g: GL.ch(G.rand.pick(['=', '~', '-'])), r: 0.8, gr: 0.7, b: 0.5, lit: true });
+      else this.part({ x, y, z: G.rand.range(0, H), vx: G.rand.range(-0.08, 0.08), vy: G.rand.range(-0.08, 0.08), vz: G.rand.range(-0.03, 0.05), life: G.rand.range(3, 6), g: GL.id('sym:dot'), r: 1, gr: 0.85, b: 0.6, lit: true });
+    } else if (id === 1) {
+      if (G.rand.chance(0.35)) this.part({ x, y, z: H - 0.05, vz: -0.5, grav: 6, life: 2, g: GL.ch("'"), r: 0.6, gr: 0.95, b: 1, lit: true, splat: L.flags[Math.floor(y) * L.w + Math.floor(x)] & G.Data.F.WATER ? null : { c: [0.05, 0.12, 0.12], em: 0 }, drip: true });
+      else this.part({ x, y, z: G.rand.range(0, 0.6), vz: 0.25, life: 2.5, g: GL.id('sym:ring'), r: 0.5, gr: 0.9, b: 0.9, lit: true });
+    } else if (id === 2) {
+      this.part({ x, y, z: H, vx: G.rand.range(-0.1, 0.1), vy: G.rand.range(-0.1, 0.1), vz: -0.22, life: 5, g: GL.ch(G.rand.pick(['.', ',', '`'])), r: 0.85, gr: 0.75, b: 0.7, lit: true });
+    } else if (id === 3) {
+      this.part({ x, y, z: G.rand.range(0, 0.6), vz: G.rand.range(0.1, 0.35), vx: G.rand.range(-0.1, 0.1), life: 6, g: GL.id(G.rand.chance(0.7) ? 'sym:dot' : 'sym:star'), r: 0.85, gr: 0.6, b: 1, glow: 0.6, add: true });
+    } else {
+      this.part({ x, y, z: G.rand.range(0, 0.4), vz: G.rand.range(0.15, 0.4), life: 6, g: GL.ch(G.rand.pick(['.', ',', "'", '-'])), r: 0.1, gr: 0.08, b: 0.08 });
+    }
+    // drips meet water as ripples
+    for (const p of this.parts) {
+      if (p.drip && p.z < 0.05 && p.life > 0) {
+        p.life = 0;
+        if (L.flags[Math.floor(p.y) * L.w + Math.floor(p.x)] & G.Data.F.WATER) this.ring(p.x, p.y, 0.02, 0.02, 0.35, 0.8, [0.4, 0.8, 0.85], { water: true });
+      }
+    }
   };
 
   // Pillars that move when no one is looking.
@@ -945,7 +1183,7 @@
           const tx = Math.floor(x), ty = Math.floor(y);
           if (L.solid(tx, ty) || L.flow[ty * L.w + tx] > 30 || L.seen[ty * L.w + tx] > this.frame - 5) continue;
           const types = Object.keys(L.st.enemies).filter((t) => t !== 'drowned' && t !== 'hollow');
-          this.spawn('phantasm', tx + 0.5, ty + 0.5, { data: { mimic: G.rand.pick(types) }, col: [0.65, 0.65, 0.7], state: 'chase' });
+          this.spawn('phantasm', tx + 0.5, ty + 0.5, { data: { mimic: G.rand.pick(types) }, col: [0.65, 0.65, 0.7], state: 'chase', summon: true });
           break;
         }
       }
@@ -997,16 +1235,31 @@
       if (e.type === 'brazier' && e.lit) dl.push({ x: e.x, y: e.y, r: 1, g: 0.6, b: 0.25, rad: 4, i: 0.35 + 0.15 * Math.sin(this.time * 17 + e.id) });
     }
     if (this.thirdPerson && P.lanternOn) dl.push({ x: P.x, y: P.y, r: 1, g: 0.75, b: 0.4, rad: 2.5, i: 0.5 });
+    // creatures' glowing parts light their surroundings
+    const glows = [];
+    for (const e of this.ents) {
+      if (!e.alive || !e.def.light) continue;
+      const lg = e.def.light(e, this);
+      if (!lg) continue;
+      const d2 = (e.x - P.x) ** 2 + (e.y - P.y) ** 2;
+      if (d2 > 400) continue;
+      glows.push({ d2, l: { x: e.x, y: e.y, z: (e.z || 0) + e.h * 0.7, r: lg[0], g: lg[1], b: lg[2], rad: lg[3], i: lg[4] } });
+    }
+    glows.sort((a, b) => a.d2 - b.d2);
+    for (let i = 0; i < glows.length && dl.length < 10; i++) dl.push(glows[i].l);
+    this.updateViewmodel(1 / 60);
     R.renderWorld(this);
     R.toCells(this, dsp);
+    R.drawRings(this, dsp);
     R.drawParticles(this, dsp);
+    R.drawLines(this, dsp);
     R.drawVoids(this, dsp);
     this.dynLights = [];
     UI.whispers(this);
     UI.bars(this);
     if (this.state === 'play' || this.state === 'descend') {
-      if (!this.thirdPerson) UI.viewmodel(this);
       UI.crosshair(this);
+      if (!this.thirdPerson) UI.chargeBar(this);
     }
     UI.hud(this);
     UI.bossBar(this);
@@ -1222,7 +1475,7 @@
           const lines = (S.codex.kills[k] || 0) >= 3 || k === 'redactor' || k === 'unwritten' ? UI.wrap(c.rule, 40) : ['Slay three to understand it.'];
           lines.forEach((l, i) => UI.text(rx, 9 + i, l, [0.7, 0.65, 0.9]));
           const def = E.defs[k === 'unwritten' ? 'heart' : k];
-          if (def && def.shape) UI.drawShape(def, rx, 13, Math.min(40, cols - rx - 2), Math.min(22, rows - 16), this.time, def.col);
+          if (def && def.model) UI.drawShape(def, rx, 13, Math.min(40, cols - rx - 2), Math.min(22, rows - 16), this.time, def.col);
         } else UI.text(rx, 6, 'You have not met this yet.', DIM);
       } else if (this.st.tab === 1) {
         const items = D.LORE.map((l, i) => ({ label: S.codex.lore.includes(i) ? `${String(i + 1).padStart(2)}. ${l.slice(0, 26)}...` : `${String(i + 1).padStart(2)}. - - -` }));
@@ -1478,11 +1731,7 @@
 
   // ------------------------------------------------------------------ extra effect entity
   E.defs.afterimage = {
-    type: 'afterimage', kind: 'effect', r: 0.2, h: 1.1, w: 0.95, col: [0.5, 0.5, 0.9], emit: [0.7, 0.7, 1], set: 'braille', glow: 1,
-    shape(u, v, e, t) {
-      const val = E.defs.avatar.shape(u, v, e, t);
-      return val > 0 ? 1.2 + 0.3 * Math.sin(t * 20) : 0;
-    },
+    type: 'afterimage', kind: 'effect', r: 0.2, h: 1.1, w: 0.95, col: [0.5, 0.5, 0.9], emit: [0.7, 0.7, 1], set: 'braille', glow: 1, noShadow: true,
     update(e, g, dt2) {
       e.data.t = (e.data.t || 0) + dt2;
       if (e.data.t > 0.6) {

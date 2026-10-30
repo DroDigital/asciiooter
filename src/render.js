@@ -15,7 +15,7 @@
 
   let cols = 0, rows = 0, SW = 0, SH = 0;
   let sR, sG, sB, sD, sM, sE, sGl;
-  let zbuf, cTop, cBot, cU, cTile, cSide, cPN, cPT, cPOX, cPOY, cRayLen;
+  let zbuf, cTop, cBot, cU, cTile, cSide, cPN, cPT, cPOX, cPOY, cRayLen, cRdx, cRdy;
   let rowDist, cellDepth, cellKind;
   const lampLUT = new Float32Array(512), fogLUT = new Float32Array(512);
   const tmpL = new Float32Array(8);
@@ -48,11 +48,15 @@
     cPOX = new Float32Array(SW * K);
     cPOY = new Float32Array(SW * K);
     cRayLen = new Float32Array(SW);
+    cRdx = new Float32Array(SW);
+    cRdy = new Float32Array(SW);
     rowDist = new Float32Array(SH);
     cellDepth = new Float32Array(c * r);
     cellKind = new Uint8Array(c * r);
     R.cols = c;
     R.rows = r;
+    R.SW = SW;
+    R.SH = SH;
     R.cellDepth = cellDepth;
     R.cellKind = cellKind;
   };
@@ -60,6 +64,8 @@
   // ---- camera ----
   R.setupCamera = function (cam, fovDeg, cellW, cellH) {
     const c = R.cam;
+    R.cellW = cellW;
+    R.cellH = cellH;
     c.x = cam.x;
     c.y = cam.y;
     c.a = cam.a;
@@ -329,6 +335,7 @@
     const bossSky = !!(L.arena && st.id === 4);
     const pfloor = st.floorPat, pceil = st.ceilPat;
     const fcol = st.floor, ccol = st.ceil;
+    const dmask = L.dmask, dtile = L.dtile;
 
     // per-row distances
     for (let y = 0; y < SH; y++) {
@@ -344,6 +351,8 @@
       const rdx = dirX + plX * camX, rdy = dirY + plY * camX;
       const rayLen = Math.sqrt(rdx * rdx + rdy * rdy);
       cRayLen[x] = rayLen;
+      cRdx[x] = rdx;
+      cRdy[x] = rdy;
       // DDA with portals
       let mx = Math.floor(px), my = Math.floor(py);
       const ddx = Math.abs(1 / (rdx || 1e-9)), ddy = Math.abs(1 / (rdy || 1e-9));
@@ -458,6 +467,22 @@
           const z = camZ + ((hz - (y + 0.5)) * t) / projY;
           const p = wallPattern(mat, u, z, th, time, lt);
           let r = wc[0] * p * lt[0] * wlR * sideK, g = wc[1] * p * lt[1] * wlG * sideK, b = wc[2] * p * lt[2] * wlB * sideK;
+          if (dmask[hitTile]) {
+            const list = dtile[hitTile];
+            for (let q = 0; q < list.length; q++) {
+              const dc = list[q];
+              if (!dc.wall) continue;
+              const ex = hitX - dc.x, ey = hitY - dc.y, ez = z - dc.z;
+              const dd = Math.sqrt(ex * ex + ey * ey + ez * ez * 1.4) / dc.r;
+              if (dd > 1) continue;
+              const nz = 0.75 + 0.25 * Math.sin(ez * 60 + dc.s) * Math.sin((ex + ey) * 50 + dc.s);
+              if (dd > nz) continue;
+              const a = dc.a * Math.min(1, (nz - dd) * 4);
+              r += (dc.c[0] * wlR * 0.6 - r) * a + dc.c[0] * dc.em * a;
+              g += (dc.c[1] * wlG * 0.6 - g) * a + dc.c[1] * dc.em * a;
+              b += (dc.c[2] * wlB * 0.6 - b) * a + dc.c[2] * dc.em * a;
+            }
+          }
           if (secret && secretVis) {
             const s = 0.5 + 0.5 * Math.sin(time * 4 + y * 0.3 + x * 0.1);
             r += 0.35 * s;
@@ -524,6 +549,30 @@
           ab = ccol[2] * p;
           m = MAT_CEIL;
         }
+        let emR = 0, emG = 0, emB = 0;
+        if (isFloor && ti >= 0 && dmask[ti]) {
+          const list = dtile[ti];
+          for (let q = 0; q < list.length; q++) {
+            const dc = list[q];
+            if (dc.wall) continue;
+            const ex = wx - dc.x, ey = wy - dc.y, r2 = ex * ex + ey * ey;
+            if (r2 > dc.r * dc.r) continue;
+            const ang = Math.atan2(ey, ex);
+            const edge = dc.r * (0.7 + 0.17 * Math.sin(ang * 3 + dc.s) + 0.13 * Math.sin(ang * 7 + dc.s * 2.1));
+            const dd = Math.sqrt(r2);
+            if (dd > edge) continue;
+            const a = dc.a * Math.min(1, ((edge - dd) / edge) * 4);
+            ar += (dc.c[0] * 0.5 - ar) * a;
+            ag += (dc.c[1] * 0.5 - ag) * a;
+            ab += (dc.c[2] * 0.5 - ab) * a;
+            if (dc.em) {
+              const k = dc.em * a * (0.8 + 0.2 * Math.sin(time * 2 + dc.s));
+              emR += dc.c[0] * k;
+              emG += dc.c[1] * k;
+              emB += dc.c[2] * k;
+            }
+          }
+        }
         let lr, lg, lb;
         if (ti < 0) {
           lr = amb[0];
@@ -556,9 +605,10 @@
           }
         }
         const fg = fogLUT[di];
-        sR[i] = fogR + (ar * lr - fogR) * fg;
-        sG[i] = fogG + (ag * lg - fogG) * fg;
-        sB[i] = fogB + (ab * lb - fogB) * fg;
+        sR[i] = fogR + (ar * lr + emR - fogR) * fg;
+        sG[i] = fogG + (ag * lg + emG - fogG) * fg;
+        sB[i] = fogB + (ab * lb + emB - fogB) * fg;
+        if (emR + emG + emB > 0.05) sGl[i] = 0.3;
         sD[i] = rd;
         sM[i] = m;
       }
@@ -589,17 +639,350 @@
       }
     }
     renderSprites(game);
+    R.renderViewmodel(game);
   };
 
-  // ---- sprites ----
+  // ---- models ----
+  // Each model is rasterized in two passes: first its distance field over the sprite's screen
+  // rectangle, then shading. Normals come from the field's gradient, inflated toward the viewer
+  // with depth below the surface, so flat silhouettes read as volume. Lights are expressed in
+  // camera space (x right, y up, z toward the camera).
   const prj = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0, camX: 0 };
+  const MO = { d: 1, m: 0, e: 1, k: 1 };
+  let tD = new Float32Array(1), tM = new Uint8Array(1), tE = new Float32Array(1), tK = new Float32Array(1);
+  let colOk = new Uint8Array(1);
+  const LTS = [];
+  for (let i = 0; i < 6; i++) LTS.push({ x: 0, y: 0, z: 0, r: 0, g: 0, b: 0 });
+  const J = { lights: 0, amb: [0, 0, 0], rim: [0, 0, 0], fog: [0, 0, 0], fogK: 1 };
+  const EMBER = 255;
+
+  let cD = new Float32Array(1), cM = new Uint8Array(1), cE = new Float32Array(1), cK = new Float32Array(1);
+  function ensureCoarse(n) {
+    if (cD.length < n) {
+      cD = new Float32Array(n);
+      cM = new Uint8Array(n);
+      cE = new Float32Array(n);
+      cK = new Float32Array(n);
+    }
+  }
+  function ensureTmp(n) {
+    if (tD.length < n) {
+      tD = new Float32Array(n);
+      tM = new Uint8Array(n);
+      tE = new Float32Array(n);
+      tK = new Float32Array(n);
+    }
+    if (colOk.length < SW + 2) colOk = new Uint8Array(SW + 2);
+  }
+
+  // Light from a world point, in camera space relative to (ex, ey, ez).
+  function addLight(lx, ly, lz, ex, ey, ez, r, g, b) {
+    if (J.lights >= LTS.length) return;
+    const c = R.cam;
+    const dx = lx - ex, dy = ly - ey;
+    let x = dx * -c.dirY + dy * c.dirX, z = -(dx * c.dirX + dy * c.dirY), y = lz - ez;
+    const n = Math.sqrt(x * x + y * y + z * z) || 1;
+    const L = LTS[J.lights++];
+    L.x = x / n;
+    L.y = y / n;
+    L.z = z / n;
+    L.r = r;
+    L.g = g;
+    L.b = b;
+  }
+  function addDirLight(x, y, z, r, g, b) {
+    if (J.lights >= LTS.length) return;
+    const n = Math.sqrt(x * x + y * y + z * z) || 1;
+    const L = LTS[J.lights++];
+    L.x = x / n;
+    L.y = y / n;
+    L.z = z / n;
+    L.r = r;
+    L.g = g;
+    L.b = b;
+  }
+
+  // Rasterize and shade one model.
+  //  rect x0..x1, y0..y1 in samples; ox, oy = sample position of model origin; sxw, syw = world units per sample;
+  //  shear = horizontal lean per unit of height; cr, sr = rotation (viewmodels); call(X, Y) evaluates the model.
+  function raster(o) {
+    const x0 = o.x0, x1 = o.x1, y0 = o.y0, y1 = o.y1;
+    if (x1 < x0 || y1 < y0) return false;
+    const W = x1 - x0 + 3, Hh = y1 - y0 + 3;
+    ensureTmp(W * Hh);
+    const mats = o.mats, thick = o.thick || 0.1, depth = o.depth, time = o.time;
+    const e = o.e, dieT = o.dieT || 0, spawnT = o.spawnT || 0;
+    // pass 1: distance field (large models are evaluated on a coarser grid and interpolated)
+    const S = o.stride || 1;
+    const evalAt = (sx, sy) => {
+      let dx = (sx + 0.5 - o.ox) * o.sxw, dy = (sy + 0.5 - o.oy) * o.syw;
+      if (o.rot) {
+        const rx = o.cr * dx + o.sr * dy, ry = -o.sr * dx + o.cr * dy;
+        dx = rx;
+        dy = ry;
+      }
+      MO.d = 1;
+      MO.m = 0;
+      MO.e = 1;
+      MO.k = 1;
+      o.call(dx - o.shear * (o.h - dy), dy);
+    };
+    if (S === 1) {
+      for (let yy = 0; yy < Hh; yy++) {
+        const sy = y0 - 1 + yy;
+        for (let xx = 0; xx < W; xx++) {
+          const sx = x0 - 1 + xx;
+          const j = yy * W + xx;
+          if (!(colOk[sx + 1] | colOk[sx] | colOk[sx + 2])) {
+            tD[j] = 1;
+            continue;
+          }
+          evalAt(sx, sy);
+          tD[j] = MO.d;
+          tM[j] = MO.m;
+          tE[j] = MO.e;
+          tK[j] = MO.k;
+        }
+      }
+    } else {
+      const cw = Math.ceil((W - 1) / S) + 2, chh = Math.ceil((Hh - 1) / S) + 2;
+      ensureCoarse(cw * chh);
+      for (let cy = 0; cy < chh; cy++) {
+        const sy = y0 - 1 + cy * S;
+        for (let cx = 0; cx < cw; cx++) {
+          const sx = x0 - 1 + cx * S;
+          const j = cy * cw + cx;
+          let near = 0;
+          for (let q = -S; q <= S + 1 && !near; q++) near = colOk[Math.max(0, Math.min(SW + 1, sx + q))];
+          if (!near) {
+            cD[j] = 1;
+            cM[j] = 0;
+            continue;
+          }
+          evalAt(sx, sy);
+          cD[j] = MO.d;
+          cM[j] = MO.m;
+          cE[j] = MO.e;
+          cK[j] = MO.k;
+        }
+      }
+      const inv = 1 / S;
+      for (let yy = 0; yy < Hh; yy++) {
+        const fy = yy * inv, iy = fy | 0, ty = fy - iy;
+        for (let xx = 0; xx < W; xx++) {
+          const fx = xx * inv, ix = fx | 0, tx = fx - ix;
+          const a = iy * cw + ix, b = a + 1, c = a + cw, d = c + 1;
+          const j = yy * W + xx;
+          tD[j] = (cD[a] * (1 - tx) + cD[b] * tx) * (1 - ty) + (cD[c] * (1 - tx) + cD[d] * tx) * ty;
+          const n = (ty < 0.5 ? (tx < 0.5 ? a : b) : tx < 0.5 ? c : d);
+          tM[j] = cM[n];
+          tE[j] = cE[n];
+          tK[j] = cK[n];
+        }
+      }
+    }
+    if (dieT > 0 || spawnT > 0) {
+      const th = (dieT > 0 ? dieT : spawnT) * 1.15;
+      for (let yy = 0; yy < Hh; yy++)
+        for (let xx = 0; xx < W; xx++) {
+          const j = yy * W + xx;
+          if (tD[j] >= 0) continue;
+          const X = (x0 - 1 + xx + 0.5 - o.ox) * o.sxw, Y = (y0 - 1 + yy + 0.5 - o.oy) * o.syw;
+          const n = G.noise2(X * 13 + 7, Y * 13, e ? e.id : 1);
+          if (n < th) tD[j] = 0.02;
+          else if (n < th + 0.08) {
+            tM[j] = EMBER;
+            tE[j] = 1.6;
+          }
+        }
+    }
+    // pass 2: shading
+    const nl = J.lights, amb = J.amb, rim = J.rim, fog = J.fog, fk = J.fogK;
+    const flash = o.flash || 0, glowK = o.glow || 0.8, ground = o.ground, h = o.h;
+    const ember = o.ember || [1, 0.5, 0.2];
+    const ix = 1 / (2 * o.sxw), iy = 1 / (2 * o.syw);
+    let any = false;
+    for (let sy = Math.max(0, y0); sy <= Math.min(SH - 1, y1); sy++) {
+      const yy = sy - y0 + 1;
+      for (let sx = Math.max(0, x0); sx <= Math.min(SW - 1, x1); sx++) {
+        if (!colOk[sx + 1]) continue;
+        const j = yy * W + (sx - x0 + 1);
+        const d = tD[j];
+        if (d >= 0) continue;
+        const i = sy * SW + sx;
+        if (sM[i] === MAT_ENT && sD[i] <= depth) continue;
+        const m = tM[j];
+        let r, g, b, gl = 0;
+        if (m === EMBER) {
+          r = ember[0] * 1.6;
+          g = ember[1] * 1.6;
+          b = ember[2] * 1.6;
+          gl = 1;
+        } else {
+          const mt = mats[m] || mats[0];
+          // normal from the distance gradient, inflated toward the viewer
+          let gx = (tD[j + 1] - tD[j - 1]) * ix, gy = (tD[j + W] - tD[j - W]) * iy;
+          if (tD[j + 1] >= 0.5 || tD[j - 1] >= 0.5) gx = 0;
+          if (tD[j + W] >= 0.5 || tD[j - W] >= 0.5) gy = 0;
+          if (o.rot) {
+            const rx = o.cr * gx - o.sr * gy, ry = o.sr * gx + o.cr * gy;
+            gx = rx;
+            gy = ry;
+          }
+          const gm = Math.sqrt(gx * gx + gy * gy) || 1;
+          const k = G.clamp(-d / thick, 0, 1);
+          const lat = 1 - k;
+          let nx = (gx / gm) * lat, ny = (-gy / gm) * lat, nz = 0.2 + k * 1.1;
+          const nn = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+          nx *= nn;
+          ny *= nn;
+          nz *= nn;
+          if (mt.rf) {
+            // refraction: show the scene behind, displaced along the normal
+            const ox = G.clamp(sx + Math.round(nx * 4 + Math.sin(sy * 0.4 + time * 6) * 1.5), 0, SW - 1);
+            const si = sy * SW + ox;
+            const sh = 1.1 + Math.max(0, tE[j]) * 0.25;
+            sR[i] = sR[si] * sh;
+            sG[i] = sG[si] * sh;
+            sB[i] = sB[si] * sh * 1.05;
+            continue;
+          }
+          if (mt.e) {
+            const em = tE[j];
+            r = mt.e[0] * (0.45 + 0.55 * em) + amb[0] * 0.2;
+            g = mt.e[1] * (0.45 + 0.55 * em) + amb[1] * 0.2;
+            b = mt.e[2] * (0.45 + 0.55 * em) + amb[2] * 0.2;
+            gl = Math.min(1.5, em * glowK);
+          } else {
+            const kd = tK[j];
+            const cr = mt.c[0] * kd, cg = mt.c[1] * kd, cb = mt.c[2] * kd;
+            const sky = 0.55 + 0.45 * ny;
+            let lr = amb[0] * sky, lg = amb[1] * sky, lb = amb[2] * sky, spr = 0, spg = 0, spb = 0;
+            const ss = mt.ss;
+            for (let q = 0; q < nl; q++) {
+              const L = LTS[q];
+              const ndl = nx * L.x + ny * L.y + nz * L.z;
+              const df = ss ? Math.max(0, (ndl + ss) / (1 + ss)) : Math.max(0, ndl);
+              lr += L.r * df;
+              lg += L.g * df;
+              lb += L.b * df;
+              if (mt.s > 0.06 && ndl > 0) {
+                let hx = L.x, hy = L.y, hz = L.z + 1;
+                const hn = 1 / Math.sqrt(hx * hx + hy * hy + hz * hz);
+                let sp = Math.max(0, (nx * hx + ny * hy + nz * hz) * hn);
+                for (let pw = 1; pw < mt.n; pw *= 2) sp *= sp;
+                sp *= mt.s;
+                spr += L.r * sp;
+                spg += L.g * sp;
+                spb += L.b * sp;
+              }
+            }
+            const rimK = (1 - nz) * (1 - nz);
+            r = cr * lr + spr + rim[0] * rimK;
+            g = cg * lg + spg + rim[1] * rimK;
+            b = cb * lb + spb + rim[2] * rimK;
+            if (ground) {
+              const ao = 0.55 + 0.45 * G.clamp((h - (sy + 0.5 - o.oy) * o.syw) / (h * 0.14), 0, 1);
+              r *= ao;
+              g *= ao;
+              b *= ao;
+            }
+          }
+          if (flash > 0) {
+            const f = flash * (0.5 + (1 - nz));
+            r += f;
+            g += f;
+            b += f;
+            gl = Math.max(gl, flash * 0.5);
+          }
+        }
+        sR[i] = fog[0] + (r - fog[0]) * fk;
+        sG[i] = fog[1] + (g - fog[1]) * fk;
+        sB[i] = fog[2] + (b - fog[2]) * fk;
+        sD[i] = depth;
+        sM[i] = MAT_ENT;
+        sE[i] = o.idx;
+        sGl[i] = gl;
+        any = true;
+      }
+    }
+    return any;
+  }
+
+  // A soft contact shadow under a grounded thing.
+  function contactShadow(e, s, P) {
+    const cam = R.cam;
+    const rs = Math.max(e.r * 1.5, e.w * 0.3);
+    const strength = 0.62 * (1 - Math.min(1, (e.z || 0) / 0.8)) * (e.dieT ? 1 - e.dieT : 1);
+    if (strength <= 0.02) return;
+    const dn = Math.max(0.25, s.d - rs), dfar = s.d + rs;
+    const yA = Math.floor(cam.hz + (cam.z * cam.projY) / dfar), yB = Math.ceil(cam.hz + (cam.z * cam.projY) / dn);
+    const hw = (rs * cam.projX) / dn;
+    const xA = Math.max(0, Math.floor(s.sx - hw)), xB = Math.min(SW - 1, Math.ceil(s.sx + hw));
+    const ir = 1 / (rs * rs);
+    for (let y = Math.max(0, yA); y <= Math.min(SH - 1, yB); y++) {
+      const rd = rowDist[y];
+      for (let x = xA; x <= xB; x++) {
+        const i = y * SW + x;
+        const m = sM[i];
+        if (m !== MAT_FLOOR && m !== MAT_WATER) continue;
+        if (cPN[x] && rd > cPT[x * K]) continue;
+        const wx = cam.x + cRdx[x] * rd - e.x, wy = cam.y + cRdy[x] * rd - e.y;
+        const q = (wx * wx + wy * wy) * ir;
+        if (q >= 1) continue;
+        const f = 1 - strength * Math.pow(1 - q, 1.4);
+        sR[i] *= f;
+        sG[i] *= f;
+        sB[i] *= f;
+      }
+    }
+    void P;
+  }
+
+  function lightsFor(game, ex, ey, ez, dist) {
+    const L = game.level, st = L.st, P = game.player;
+    J.lights = 0;
+    L.light(ex, ey, lt);
+    J.amb[0] = lt[0] * 0.9 + 0.03;
+    J.amb[1] = lt[1] * 0.9 + 0.03;
+    J.amb[2] = lt[2] * 0.9 + 0.03;
+    if (P.lanternOn) {
+      const q = dist / P.lampRadius();
+      const k = Math.max(0, 1 - q * q) * 1.25 + 0.05;
+      const c = R.cam;
+      const lx = game.thirdPerson ? P.x + Math.sin(P.a) * 0.3 : c.x - c.dirY * -0.25;
+      const ly = game.thirdPerson ? P.y - Math.cos(P.a) * 0.3 : c.y + c.dirX * -0.25;
+      addLight(lx, ly, 0.75, ex, ey, ez, st.lamp[0] * k, st.lamp[1] * k, st.lamp[2] * k);
+    } else {
+      J.amb[0] += 0.04;
+      J.amb[1] += 0.04;
+      J.amb[2] += 0.05;
+    }
+    const dyn = game.dynLights;
+    for (let k = 0; k < dyn.length && J.lights < LTS.length; k++) {
+      const Lg = dyn[k];
+      const dx = ex - Lg.x, dy = ey - Lg.y, d2 = dx * dx + dy * dy, r2 = Lg.rad * Lg.rad;
+      if (d2 >= r2 || d2 < 0.0004) continue;
+      const f = (1 - d2 / r2) * Lg.i;
+      addLight(Lg.x, Lg.y, Lg.z || 0.6, ex, ey, ez, Lg.r * f * 1.3, Lg.g * f * 1.3, Lg.b * f * 1.3);
+    }
+    const ink = st.ink;
+    J.rim[0] = ink ? 0.05 : st.accent[0] * 0.22 + st.fog[0] * 0.3 + J.amb[0] * 0.6;
+    J.rim[1] = ink ? 0.05 : st.accent[1] * 0.22 + st.fog[1] * 0.3 + J.amb[1] * 0.6;
+    J.rim[2] = ink ? 0.05 : st.accent[2] * 0.22 + st.fog[2] * 0.3 + J.amb[2] * 0.6;
+    J.fog[0] = st.fog[0];
+    J.fog[1] = st.fog[1];
+    J.fog[2] = st.fog[2];
+  }
+
   function renderSprites(game) {
-    const cam = R.cam, L = game.level, st = L.st, P = game.player;
+    const cam = R.cam, P = game.player;
     const list = R.sprites;
     list.length = 0;
     const offs = R.offsets;
+    const camAng = (x, y) => Math.atan2(cam.y - y, cam.x - x);
     for (const e of game.ents) {
-      if (!e.alive || e.hidden) continue;
+      if (!(e.alive || (e.dying && e.dieT < 1)) || e.hidden) continue;
       e.seen = false;
       e.onScreen = false;
       if (e.isPlayer && !game.thirdPerson && offs.length <= 2) continue;
@@ -614,99 +997,121 @@
       }
     }
     list.sort((a, b) => b.d - a.d);
-    const lampR = P.lampRadius();
-    const lampI = P.lanternOn ? 1.1 : 0;
-    const time = game.time;
+    const time = game.time, st = game.level.st;
     for (let si = 0; si < list.length; si++) {
       const s = list[si], e = s.e, def = e.def;
-      if (s.ox === 0 && s.oy === 0) {
+      const real = s.ox === 0 && s.oy === 0;
+      if (real) {
         e.onScreen = true;
         e.camX = s.camX;
         e.depth = s.d;
       }
       if (def.visible && !def.visible(e, s, game)) continue;
-      const shape = def.shape;
-      if (!shape) continue;
-      // light at the entity
-      L.light(e.x, e.y, lt);
-      const dist = Math.hypot(e.x - P.x, e.y - P.y);
-      const q = dist / lampR;
-      const lp = lampI * Math.max(0, 1 - q * q) + 0.12;
-      let lr = lt[0] + lp * st.lamp[0], lg = lt[1] + lp * st.lamp[1], lb = lt[2] + lp * st.lamp[2];
-      for (const Lg of game.dynLights) {
-        const d2 = (e.x - Lg.x) ** 2 + (e.y - Lg.y) ** 2, r2 = Lg.rad * Lg.rad;
-        if (d2 < r2) {
-          const f = (1 - d2 / r2) * Lg.i;
-          lr += Lg.r * f * f;
-          lg += Lg.g * f * f;
-          lb += Lg.b * f * f;
-        }
-      }
-      const minL = def.minLight || 0.32;
-      if (lr + lg + lb < minL * 3) {
-        const k = (minL * 3) / Math.max(0.01, lr + lg + lb);
-        lr *= k;
-        lg *= k;
-        lb *= k;
-      }
-      const fog = Math.exp(-s.d * st.fogD * 0.8);
-      const fogR = st.fog[0], fogG = st.fog[1], fogB = st.fog[2];
-      const col = e.col, emit = e.emit || col;
-      const flash = e.flash > 0;
-      const spH = (e.h * R.cam.projY) / s.d;
-      const bottom = s.sy;
-      const top = bottom - spH;
+      if (!def.model) continue;
+      e.rel = G.angleDiff(camAng(e.x - s.ox, e.y - s.oy), e.face === undefined ? camAng(e.x, e.y) : e.face);
+      if (real && def.kind !== 'proj' && (e.z || 0) < 0.9 && !def.noShadow) contactShadow(e, s, P);
+      // columns that pass the depth / portal test
+      const spH = (e.h * cam.projY) / s.d;
+      const bottom = s.sy, top = bottom - spH;
       const x0 = Math.max(0, Math.floor(s.sx - s.halfW)), x1 = Math.min(SW - 1, Math.ceil(s.sx + s.halfW));
-      const y0 = Math.max(0, Math.floor(top)), y1 = Math.min(SH - 1, Math.ceil(bottom));
-      for (let x = x0; x <= x1; x++) {
-        // depth & portal-segment test
-        if (s.d >= zbuf[x]) continue;
-        const pn = cPN[x];
-        if (pn) {
-          let sox = 0, soy = 0;
-          for (let k = 0; k < pn; k++) {
-            if (s.d > cPT[x * K + k]) {
-              sox = cPOX[x * K + k];
-              soy = cPOY[x * K + k];
-            } else break;
-          }
-          if (sox !== s.ox || soy !== s.oy) continue;
-        } else if (s.ox !== 0 || s.oy !== 0) continue;
-        const u = (x + 0.5 - s.sx) / s.halfW;
-        for (let y = y0; y <= y1; y++) {
-          const i = y * SW + x;
-          if (sD[i] <= s.d && sM[i] === MAT_ENT) continue;
-          const v = (y + 0.5 - top) / spH;
-          const val = shape(u, v, e, time);
-          if (val <= 0) continue;
-          let r, g, b, gl = 0;
-          if (flash) {
-            r = g = b = 1.2;
-            gl = 0.3;
-          } else if (val > 1) {
-            const k = val - 1;
-            r = emit[0] * (0.6 + k);
-            g = emit[1] * (0.6 + k);
-            b = emit[2] * (0.6 + k);
-            gl = k * (def.glow || 0.8);
-          } else {
-            r = col[0] * val * lr;
-            g = col[1] * val * lg;
-            b = col[2] * val * lb;
-          }
-          sR[i] = fogR + (r - fogR) * fog;
-          sG[i] = fogG + (g - fogG) * fog;
-          sB[i] = fogB + (b - fogB) * fog;
-          sD[i] = s.d;
-          sM[i] = MAT_ENT;
-          sE[i] = si;
-          sGl[i] = gl;
-          if (s.ox === 0 && s.oy === 0) e.seen = true;
+      let anyCol = false;
+      for (let x = x0 - 1; x <= x1 + 1; x++) {
+        let ok = 0;
+        if (x >= 0 && x < SW && s.d < zbuf[x]) {
+          const pn = cPN[x];
+          if (pn) {
+            let sox = 0, soy = 0;
+            for (let k = 0; k < pn; k++) {
+              if (s.d > cPT[x * K + k]) {
+                sox = cPOX[x * K + k];
+                soy = cPOY[x * K + k];
+              } else break;
+            }
+            ok = sox === s.ox && soy === s.oy ? 1 : 0;
+          } else ok = real ? 1 : 0;
         }
+        colOk[x + 1] = ok;
+        if (ok) anyCol = true;
       }
+      if (!anyCol) continue;
+      lightsFor(game, e.x, e.y, (e.z || 0) + e.h * 0.5, Math.hypot(e.x - P.x, e.y - P.y));
+      J.fogK = Math.exp(-s.d * st.fogD * 0.8);
+      const hitK = e.hitT > 0 ? e.hitT / 0.22 : 0;
+      const shear = (e.lean || 0) * hitK * 0.25 + (def.sway ? Math.sin(time * 1.3 + e.id) * def.sway : 0);
+      const sxw = e.w / (2 * s.halfW), syw = e.h / spH;
+      const ox = s.sx, oy = top;
+      const ee = e, md = def.model;
+      const drawn = raster({
+        x0, x1, y0: Math.max(0, Math.floor(top)), y1: Math.min(SH - 1, Math.ceil(bottom)),
+        ox: ox, oy: oy, sxw, syw, shear, h: e.h, rot: false,
+        call: (X, Y) => md(X, Y, ee, time, MO),
+        mats: def.mats, thick: def.thick, depth: s.d, time, e, dieT: e.dieT, spawnT: e.spawnT,
+        flash: e.flash > 0 ? Math.min(1, e.flash * 9) : 0, glow: def.glow, ground: (e.z || 0) < 0.05 && def.kind !== 'pickup',
+        stride: s.halfW > 34 || spH > 120 ? 3 : s.halfW > 12 || spH > 50 ? 2 : 1,
+        idx: si, ember: def.blood ? [def.blood[0] * 2 + 0.6, def.blood[1] * 2 + 0.3, def.blood[2] * 2 + 0.1] : null,
+      });
+      if (drawn && real) e.seen = true;
     }
   }
 
+  // ---- the weapon in your hands, as a lit model in screen space ----
+  const VME = { id: 7777, def: { set: 'blocks', crawl: false } };
+  R.renderViewmodel = function (game) {
+    const vm = game.vm, P = game.player;
+    if (!vm || !vm.show) return;
+    const model = G.Models.vm[P.weapons[P.cur]];
+    if (!model) return;
+    const c = vm.charge || 0, time = game.time;
+    const vs = SH * 0.52;
+    const hs = (vs * (R.cellH / 4)) / (R.cellW / 2);
+    const px = SW * 0.63 + vm.x * SW, py = SH * 1.04 + vm.y * SH;
+    const cr = Math.cos(vm.rot), sr = Math.sin(vm.rot);
+    const bx = model.box;
+    // screen bounds of the rotated model box
+    let xa = 1e9, xb = -1e9, ya = 1e9, yb = -1e9;
+    for (const [mx, my] of [[bx[0], bx[2]], [bx[1], bx[2]], [bx[0], bx[3]], [bx[1], bx[3]]]) {
+      const sx = px + (cr * mx - sr * my) * hs, sy = py + (sr * mx + cr * my) * vs;
+      xa = Math.min(xa, sx);
+      xb = Math.max(xb, sx);
+      ya = Math.min(ya, sy);
+      yb = Math.max(yb, sy);
+    }
+    const x0 = Math.max(0, Math.floor(xa)), x1 = Math.min(SW - 1, Math.ceil(xb));
+    for (let x = x0 - 1; x <= x1 + 1; x++) colOk[x + 1] = x >= 0 && x < SW ? 1 : 0;
+    const L = game.level, st = L.st;
+    J.lights = 0;
+    L.light(P.x, P.y, lt);
+    J.amb[0] = lt[0] * 0.8 + 0.04;
+    J.amb[1] = lt[1] * 0.8 + 0.035;
+    J.amb[2] = lt[2] * 0.8 + 0.03;
+    const lamp = P.lanternOn ? 0.95 : 0.12;
+    addDirLight(-0.65, 0.35, 0.65, st.lamp[0] * lamp, st.lamp[1] * lamp, st.lamp[2] * lamp);
+    const w = P.weapon();
+    if (P.recoil > 0.05 || P.beaming) {
+      const k = Math.max(P.recoil, P.beaming ? 0.6 : 0) * 2;
+      addDirLight(0.1, 0.9, 0.35, w.col[0] * k, w.col[1] * k, w.col[2] * k);
+    }
+    for (const Lg of game.dynLights) {
+      const d2 = (P.x - Lg.x) ** 2 + (P.y - Lg.y) ** 2;
+      if (d2 > Lg.rad * Lg.rad || J.lights >= LTS.length) continue;
+      const f = (1 - d2 / (Lg.rad * Lg.rad)) * Lg.i * 0.8;
+      addLight(Lg.x, Lg.y, Lg.z || 0.6, P.x, P.y, 0.4, Lg.r * f, Lg.g * f, Lg.b * f);
+    }
+    J.rim[0] = st.ink ? 0.03 : st.accent[0] * 0.18;
+    J.rim[1] = st.ink ? 0.03 : st.accent[1] * 0.18;
+    J.rim[2] = st.ink ? 0.03 : st.accent[2] * 0.18;
+    J.fog[0] = J.fog[1] = J.fog[2] = 0;
+    J.fogK = 1;
+    R.sprites.push({ e: VME });
+    const idx = R.sprites.length - 1;
+    const md = model.model;
+    raster({
+      x0, x1, y0: Math.max(0, Math.floor(ya)), y1: Math.min(SH - 1, Math.ceil(yb)),
+      ox: px, oy: py, sxw: 1 / hs, syw: 1 / vs, shear: 0, h: 0, rot: true, cr, sr,
+      call: (X, Y) => md(X, Y, P, c, time, MO),
+      mats: model.mats, thick: 0.05, depth: 0.05, time, e: null, glow: 1, ground: false, idx, stride: 2,
+    });
+  };
   // ---- convert samples into glyph cells ----
   function put(D_, ci, g, r, gg, b, br, bg, bb, gl) {
     D_.glyph[ci] = g;
@@ -1003,31 +1408,185 @@
     R.toCells({ level: fakeL, time: t, fx: { corrupt: 0, collapse: 0 }, player: null }, game.dsp);
   };
 
-  // Particles: world-space glyphs, depth tested against the cell grid.
+  // ---- particles, lines and rings: drawn straight into the cell grid, depth tested ----
+  const GLs = {};
+  function gl(k) {
+    return GLs[k] || (GLs[k] = G.Glyphs.id(k));
+  }
+  function slopeGlyph(dx, dy) {
+    // dx, dy in pixels; screen y down
+    const a = Math.atan2(-dy, dx);
+    const q = ((a / Math.PI) * 4 + 8.5) % 4 | 0;
+    return G.Glyphs.ch(q === 0 ? '-' : q === 1 ? '/' : q === 2 ? '|' : '\\');
+  }
+  // Additive or replacing write of one cell.
+  function blendCell(DSP, ci, g, r, gg, b, glow, add) {
+    const o = ci * 4, fg = DSP.fg, bg = DSP.bg;
+    if (add) {
+      const cur = fg[o] + fg[o + 1] + fg[o + 2];
+      const inc = (r + gg + b) * 255;
+      if (g >= 0 && inc > cur * 0.5) DSP.glyph[ci] = g;
+      fg[o] = Math.min(255, fg[o] + r * 255);
+      fg[o + 1] = Math.min(255, fg[o + 1] + gg * 255);
+      fg[o + 2] = Math.min(255, fg[o + 2] + b * 255);
+      bg[o] = Math.min(255, bg[o] + r * 40);
+      bg[o + 1] = Math.min(255, bg[o + 1] + gg * 40);
+      bg[o + 2] = Math.min(255, bg[o + 2] + b * 40);
+    } else {
+      if (g >= 0) DSP.glyph[ci] = g;
+      fg[o] = Math.min(255, r * 255);
+      fg[o + 1] = Math.min(255, gg * 255);
+      fg[o + 2] = Math.min(255, b * 255);
+    }
+    fg[o + 3] = Math.min(255, Math.max(fg[o + 3], glow * 255));
+  }
+  const FIRE = [[1, 1, 0.9], [1, 0.9, 0.4], [1, 0.55, 0.15], [0.8, 0.2, 0.05], [0.25, 0.05, 0.02]];
+  function ramp(R_, t, out) {
+    const f = G.clamp(t, 0, 0.999) * (R_.length - 1), i = f | 0, k = f - i;
+    out[0] = R_[i][0] + (R_[i + 1][0] - R_[i][0]) * k;
+    out[1] = R_[i][1] + (R_[i + 1][1] - R_[i][1]) * k;
+    out[2] = R_[i][2] + (R_[i + 1][2] - R_[i][2]) * k;
+    return out;
+  }
+  const pc = [0, 0, 0], prj2 = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0, camX: 0 };
+  const DENS = ['sym:dot', 'c:.', 'c::', 'sh:1', 'sh:2', 'sh:3'];
+
   R.drawParticles = function (game, DSP) {
-    const cam = R.cam;
+    const L = game.level, P = game.player, ink = L.st.ink;
+    const cw = DSP.cellW, ch = DSP.cellH;
     for (const p of game.parts) {
       R.project(p.x, p.y, p.z, prj);
-      if (prj.d <= 0.1) continue;
+      if (prj.d <= 0.12) continue;
       const cx = Math.floor(prj.cx), cy = Math.floor(prj.cy);
-      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) continue;
-      const ci = cy * cols + cx;
-      if (!p.noDepth && cellDepth[ci] < prj.d - 0.05) continue;
+      if (cx < -8 || cy < -8 || cx >= cols + 8 || cy >= rows + 8) continue;
       const a = p.life / p.max;
-      const k = p.fade === false ? 1 : Math.min(1, a * 1.5);
-      const o = ci * 4;
-      DSP.glyph[ci] = p.g;
-      DSP.fg[o] = Math.min(255, p.r * 255 * k) | 0;
-      DSP.fg[o + 1] = Math.min(255, p.gr * 255 * k) | 0;
-      DSP.fg[o + 2] = Math.min(255, p.b * 255 * k) | 0;
-      DSP.fg[o + 3] = Math.min(255, (p.glow || 0) * 255 * k) | 0;
-      if (p.bg) {
-        DSP.bg[o] = DSP.bg[o] >> 1;
-        DSP.bg[o + 1] = DSP.bg[o + 1] >> 1;
-        DSP.bg[o + 2] = DSP.bg[o + 2] >> 1;
+      let k = p.fade === false ? 1 : Math.min(1, a * 1.6);
+      let r = p.r, g = p.gr, b = p.b;
+      if (p.ramp) {
+        ramp(p.ramp, 1 - a, pc);
+        r = pc[0];
+        g = pc[1];
+        b = pc[2];
+      }
+      if (p.lit) {
+        L.light(p.x, p.y, lt);
+        const dd = Math.hypot(p.x - P.x, p.y - P.y), q = dd / P.lampRadius();
+        const lamp = P.lanternOn ? Math.max(0, 1 - q * q) * 1.2 : 0;
+        k *= Math.min(1.4, (lt[0] + lt[1] + lt[2]) / 3 + lamp);
+      }
+      if (ink && !p.glow) {
+        r = 1 - r;
+        g = 1 - g;
+        b = 1 - b;
+      }
+      const add = !!p.add && !ink;
+      if (ink && p.add) k *= -1;
+      const kk = Math.abs(k);
+      const dcol = (x, y, glyph, f) => {
+        if (x < 0 || y < 0 || x >= cols || y >= rows) return;
+        const ci = y * cols + x;
+        if (!p.noDepth && cellDepth[ci] < prj.d - 0.05) return;
+        if (ink && k < 0) blendCell(DSP, ci, glyph, r * f * 0.2, g * f * 0.2, b * f * 0.2, 0, false);
+        else blendCell(DSP, ci, glyph, r * f, g * f, b * f, (p.glow || 0) * f, add);
+      };
+      if (p.streak) {
+        R.project(p.x - p.vx * p.streak, p.y - p.vy * p.streak, p.z - p.vz * p.streak, prj2);
+        if (prj2.d > 0.12) {
+          const dx = prj.cx - prj2.cx, dy = prj.cy - prj2.cy;
+          const n = Math.min(6, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+          if (n >= 1) {
+            const glyph = slopeGlyph(dx * cw, dy * ch);
+            for (let i = 0; i <= n; i++) dcol(Math.floor(prj2.cx + (dx * i) / n), Math.floor(prj2.cy + (dy * i) / n), i === n ? gl('c:*') : glyph, kk * (0.35 + (0.65 * i) / n));
+            continue;
+          }
+        }
+      }
+      const size = p.size ? (p.size * R.cam.projX) / prj.d / 2 : 0;
+      if (size > 1.15) {
+        const rad = Math.min(9, size), ry = rad * (cw / ch);
+        for (let y = Math.floor(prj.cy - ry); y <= Math.ceil(prj.cy + ry); y++)
+          for (let x = Math.floor(prj.cx - rad); x <= Math.ceil(prj.cx + rad); x++) {
+            const ux = (x + 0.5 - prj.cx) / rad, uy = (y + 0.5 - prj.cy) / ry;
+            const q = ux * ux + uy * uy;
+            if (q > 1) continue;
+            const f = (1 - q) * kk;
+            const di = Math.min(DENS.length - 1, Math.floor(f * DENS.length));
+            dcol(x, y, p.g >= 0 && q < 0.15 ? p.g : gl(DENS[di]), f);
+          }
+        continue;
+      }
+      dcol(cx, cy, p.g, kk);
+    }
+  };
+
+  // Line effects (tracers, beams, rails), clipped at the near plane.
+  function clipPoint(x0, y0, z0, x1, y1, z1, out) {
+    R.project(x0, y0, z0, out);
+    if (out.d > 0.15) return true;
+    let lo = 0, hi = 1;
+    R.project(x1, y1, z1, prj2);
+    if (prj2.d <= 0.15) return false;
+    for (let i = 0; i < 12; i++) {
+      const m = (lo + hi) / 2;
+      R.project(x0 + (x1 - x0) * m, y0 + (y1 - y0) * m, z0 + (z1 - z0) * m, out);
+      if (out.d > 0.15) hi = m;
+      else lo = m;
+    }
+    R.project(x0 + (x1 - x0) * hi, y0 + (y1 - y0) * hi, z0 + (z1 - z0) * hi, out);
+    return true;
+  }
+  const lA = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0 }, lB = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0 };
+  R.drawLines = function (game, DSP) {
+    const cw = DSP.cellW, ch = DSP.cellH, ink = game.level.st.ink;
+    for (const ln of game.lines) {
+      if (!clipPoint(ln.x0, ln.y0, ln.z0, ln.x1, ln.y1, ln.z1, lA)) continue;
+      if (!clipPoint(ln.x1, ln.y1, ln.z1, ln.x0, ln.y0, ln.z0, lB)) continue;
+      const dx = lB.cx - lA.cx, dy = lB.cy - lA.cy;
+      const n = Math.min(500, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))) + 1);
+      const glyph = ln.glyph || slopeGlyph(dx * cw, dy * ch);
+      const life = ln.life / ln.max;
+      const perpX = Math.abs(dy * ch) > Math.abs(dx * cw) ? 1 : 0;
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const x = Math.floor(lA.cx + dx * t), y = Math.floor(lA.cy + dy * t);
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+        const depth = 1 / ((1 - t) / lA.d + t / lB.d);
+        const ci = y * cols + x;
+        if (!ln.noDepth && cellDepth[ci] < depth - 0.05) continue;
+        let f = life * (ln.taper ? 0.2 + 0.8 * t : 1);
+        if (ln.flicker) f *= 0.6 + 0.4 * G.hash2(i, game.frame, 7);
+        const g2 = ln.sigil ? G.Glyphs.id('sa:' + ((i * 7 + game.frame) % 96)) : t > 0.97 && ln.head ? gl('c:*') : glyph;
+        if (ink) blendCell(DSP, ci, g2, 0.15 * f, 0.02, 0.02, 0, false);
+        else blendCell(DSP, ci, g2, ln.c[0] * f, ln.c[1] * f, ln.c[2] * f, f, true);
+        if (ln.w > 1 && !ink) {
+          const xi = x + (perpX ? 1 : 0), yi = y + (perpX ? 0 : 1);
+          if (xi < cols && yi < rows) blendCell(DSP, yi * cols + xi, -1, ln.c[0] * f * 0.4, ln.c[1] * f * 0.4, ln.c[2] * f * 0.4, f * 0.6, true);
+        }
       }
     }
-    void cam;
+  };
+
+  // Expanding rings on the floor: shockwaves and ripples.
+  R.drawRings = function (game, DSP) {
+    const ink = game.level.st.ink;
+    for (const rg of game.rings) {
+      const k = 1 - rg.life / rg.max;
+      const rad = rg.r0 + (rg.r1 - rg.r0) * Math.sqrt(k);
+      const n = Math.min(160, Math.max(12, Math.floor(rad * 26)));
+      const f = (1 - k) * rg.i;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * G.TAU;
+        R.project(rg.x + Math.cos(a) * rad, rg.y + Math.sin(a) * rad, rg.z || 0.02, prj);
+        if (prj.d <= 0.15) continue;
+        const x = Math.floor(prj.cx), y = Math.floor(prj.cy);
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+        const ci = y * cols + x;
+        if (cellDepth[ci] < prj.d - 0.1) continue;
+        const g2 = rg.glyph || gl(rg.water ? 'sym:wave' : 'c:o');
+        if (ink) blendCell(DSP, ci, g2, 0.1, 0.02, 0.02, 0, false);
+        else blendCell(DSP, ci, g2, rg.c[0] * f, rg.c[1] * f, rg.c[2] * f, f * 0.8, true);
+      }
+    }
   };
 
   // Screen-space circle effects (the Unspoken Word's erasure).

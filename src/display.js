@@ -16,6 +16,7 @@ uniform vec2 uGrid; uniform vec2 uRes; uniform int uAtlasCols; uniform vec2 uSlo
 uniform vec2 uAtlasSize; uniform float uPad; uniform float uTime; uniform float uScan; uniform float uCurve;
 uniform float uAberr; uniform float uGlow; uniform float uNoise; uniform float uVig; uniform float uFlash;
 uniform vec3 uFlashCol; uniform float uInvert; uniform vec2 uShake; uniform float uWarp; uniform float uDpr;
+uniform vec4 uWave[4]; uniform float uSat; uniform vec3 uTint; uniform float uSpeed;
 in vec2 vUv; out vec4 outColor;
 
 vec3 cellAt(vec2 uv){
@@ -38,12 +39,27 @@ void main(){
   float r2 = dot(cc, cc);
   uv = 0.5 + cc * (1.0 + uCurve * r2);
   if (uWarp > 0.0) uv.x += uWarp * sin(uv.y * 37.0 + uTime * 2.7) * 0.004;
+  vec2 asp = vec2(uRes.x / uRes.y, 1.0);
+  for (int i = 0; i < 4; i++) {
+    vec4 w = uWave[i];
+    if (w.w <= 0.0) continue;
+    vec2 dv = (uv - w.xy) * asp;
+    float d = length(dv);
+    float k = exp(-pow((d - w.z) / 0.04, 2.0)) * w.w;
+    uv -= (dv / max(d, 1e-4)) / asp * k * 0.03;
+  }
   vec3 col;
   if (uAberr > 0.0005) {
     vec2 d = (uv - 0.5) * uAberr;
     col = vec3(cellAt(uv + d).r, cellAt(uv).g, cellAt(uv - d).b);
   } else {
     col = cellAt(uv);
+  }
+  if (uSpeed > 0.01) {
+    vec2 dir = (uv - 0.5);
+    vec3 acc = col;
+    for (int i = 1; i <= 3; i++) acc += cellAt(uv - dir * float(i) * 0.018 * uSpeed);
+    col = mix(col, acc / 4.0, min(1.0, uSpeed));
   }
   if (uGlow > 0.0) {
     vec2 px = 1.0 / uGrid;
@@ -65,6 +81,8 @@ void main(){
   col *= 1.0 - uScan * 0.28 * sl;
   col *= 1.0 - uVig * smoothstep(0.08, 0.55, r2);
   col += (hash(gl_FragCoord.xy + fract(uTime) * 91.0) - 0.5) * uNoise;
+  float lum = dot(col, vec3(0.3, 0.59, 0.11));
+  col = mix(vec3(lum), col, uSat) * uTint;
   col = mix(col, uFlashCol, uFlash);
   col = mix(col, vec3(1.0) - col, uInvert);
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) col = vec3(0.0);
@@ -79,7 +97,7 @@ void main(){
       this.gl = gl;
       this.cols = 0;
       this.rows = 0;
-      this.fx = { scan: 0.5, curve: 0.04, aberr: 0, glow: 1, noise: 0.025, vig: 0.55, flash: 0, flashCol: [1, 1, 1], invert: 0, shakeX: 0, shakeY: 0, warp: 0 };
+      this.fx = { scan: 0.5, curve: 0.04, aberr: 0, glow: 1, noise: 0.025, vig: 0.55, flash: 0, flashCol: [1, 1, 1], invert: 0, shakeX: 0, shakeY: 0, warp: 0, sat: 1, tint: [1, 1, 1], speed: 0, waves: new Float32Array(16) };
       this._init();
     }
 
@@ -219,6 +237,10 @@ void main(){
       gl.uniform2f(u.uShake, f.shakeX * this.dpr, f.shakeY * this.dpr);
       gl.uniform1f(u.uWarp, f.warp);
       gl.uniform1f(u.uDpr, this.dpr);
+      gl.uniform4fv(u['uWave[0]'], f.waves);
+      gl.uniform1f(u.uSat, f.sat);
+      gl.uniform3f(u.uTint, f.tint[0], f.tint[1], f.tint[2]);
+      gl.uniform1f(u.uSpeed, f.speed);
       gl.bindVertexArray(this.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }

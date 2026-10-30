@@ -163,7 +163,8 @@
         g.sound('dash');
         g.fx.fovKick = 9;
         if (this.mods.dashBlast) g.spawn('afterimage', this.x, this.y, {});
-        g.burst(this.x, this.y, 0.5, 8, [0.6, 0.6, 0.8], '-', 2);
+        g.smoke(this.x, this.y, 0.1, 4, 0.25, [0.5, 0.48, 0.55], 0.2);
+        g.ring(this.x, this.y, 0.03, 0.1, 1.2, 0.35, [0.6, 0.7, 1]);
       }
       if (this.dashT > 0) {
         this.dashT -= dt;
@@ -181,7 +182,10 @@
       const phase = Math.floor(this.walk / Math.PI);
       if (phase !== this.stepPhase) {
         this.stepPhase = phase;
-        if (sp > 1) g.sound(inWater ? 'splash' : 'step', undefined, undefined, { vol: inWater ? 0.6 : 1 });
+        if (sp > 1) {
+          g.sound(inWater ? 'splash' : 'step', undefined, undefined, { vol: inWater ? 0.6 : 1 });
+          g.footstep(inWater);
+        }
       }
 
       // ---- lantern, lucidity, unraveling ----

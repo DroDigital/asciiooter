@@ -17,6 +17,7 @@
     return;
   }
   G.Input.init(canvas);
+  G.Models.attach();
   try {
     G.Game.init(dsp);
   } catch (e) {

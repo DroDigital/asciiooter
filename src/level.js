@@ -26,6 +26,9 @@
       this.shifts = [];
       this.spawns = [];
       this.secretOpen = false;
+      this.dmask = new Uint8Array(w * h);
+      this.dtile = new Array(w * h);
+      this.decals = [];
       this.start = { x: 2.5, y: 2.5, a: 0 };
       this.arena = null;
     }
@@ -196,6 +199,37 @@
       out[1] = lm[a + 1] * w0 + lm[b + 1] * w1 + lm[c + 1] * w2 + lm[d + 1] * w3;
       out[2] = lm[a + 2] * w0 + lm[b + 2] * w1 + lm[c + 2] * w2 + lm[d + 2] * w3;
       return out;
+    }
+
+    // Stains on floors and walls. A decal is stored in every tile its circle touches.
+    addDecal(dc) {
+      const W = this.w;
+      const x0 = Math.max(0, Math.floor(dc.x - dc.r)), x1 = Math.min(W - 1, Math.floor(dc.x + dc.r));
+      const y0 = Math.max(0, Math.floor(dc.y - dc.r)), y1 = Math.min(this.h - 1, Math.floor(dc.y + dc.r));
+      dc.tiles = [];
+      for (let y = y0; y <= y1; y++)
+        for (let x = x0; x <= x1; x++) {
+          const i = y * W + x;
+          if (dc.wall ? this.tiles[i] === 0 : this.tiles[i] > 0) continue;
+          const list = this.dtile[i] || (this.dtile[i] = []);
+          if (list.length >= 8) this.removeDecal(list[0]);
+          list.push(dc);
+          this.dmask[i] = 1;
+          dc.tiles.push(i);
+        }
+      this.decals.push(dc);
+      if (this.decals.length > 360) this.removeDecal(this.decals[0]);
+    }
+    removeDecal(dc) {
+      for (const i of dc.tiles) {
+        const list = this.dtile[i];
+        const k = list.indexOf(dc);
+        if (k >= 0) list.splice(k, 1);
+        if (!list.length) this.dmask[i] = 0;
+      }
+      dc.tiles = [];
+      const k = this.decals.indexOf(dc);
+      if (k >= 0) this.decals.splice(k, 1);
     }
 
     randomFloorIn(room, rng, margin) {

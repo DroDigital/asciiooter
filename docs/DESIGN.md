@@ -68,6 +68,13 @@ text, and the thing beneath it is erasing it.
   floors, ceilings and sprites beyond a portal are drawn in the right space. Mirror rooms repeat infinitely.
 - **Glyph selection:** each style builds a 256-entry shape table offline. At runtime every cell computes
   its 8-sample mask, foreground and background colours, and takes one table lookup.
+- **Models:** smooth-blended distance fields rasterized in two passes (field, then shading). Large models
+  use a coarse grid with interpolation. Normals come from the field gradient, inflated toward the viewer.
+  Shading has diffuse, wrapped subsurface, specular (power by repeated squaring) and rim terms, plus
+  refraction for the Hollow's invisibility. Animation: walk cycles driven by movement, facing, attack
+  telegraphs, hit lean, dissolve-to-ember deaths, and fade-in summons.
+- **Effects:** sparks, smoke, ink droplets that become stains, rings, perspective tracer lines, contact
+  shadows, light spilled by creatures, and ambient particles for each stratum, all depth-tested against the glyph grid.
 - **Lighting:** a baked line-of-sight lightmap with bilinear sampling, a lantern falloff table,
   and up to about 12 dynamic lights (muzzle flash, projectiles, beams, explosions).
 - **Determinism:** levels come from `hash(seed phrase + floor)`. Combat randomness is separate.
