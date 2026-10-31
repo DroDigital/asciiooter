@@ -5,7 +5,7 @@
   const G = window.G;
   const D = G.Data, In = G.Input, A = G.Audio, R = G.R, UI = G.UI, E = G.Ent, GL = G.Glyphs;
   const SAVE_KEY = 'asciiooter.save.v1';
-  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false, threads: true, res: 'auto', sharp: 1.5 };
+  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false, threads: true, res: 'auto', sharp: 1.5, bright: 1.11, guide: true };
   const lt = [0, 0, 0];
 
   function defaultSave() {
@@ -333,7 +333,7 @@
     const tr = this.trace(x, y, dx, dy, range, !o.walls, true);
     const hits = [];
     for (const e of this.ents) {
-      if (!e.alive || (e.kind !== 'enemy' && !e.def.shootable)) continue;
+      if (!e.alive || e.intangible || (e.kind !== 'enemy' && !e.def.shootable)) continue;
       for (const s of tr.segs) {
         const rx = e.x - s.ox - x, ry = e.y - s.oy - y;
         const t = rx * dx + ry * dy;
@@ -497,7 +497,7 @@
     o = o || {};
     const P = this.player, L = this.level;
     for (const e of this.ents) {
-      if (!e.alive) continue;
+      if (!e.alive || e.intangible) continue;
       const d = Math.hypot(e.x - x, e.y - y);
       if (d > rad + e.r) continue;
       const k = 1 - (0.6 * Math.min(d, rad)) / rad;
@@ -624,7 +624,7 @@
       if (pool.length) weapon = G.rand.pick(pool);
     }
     const L = (this.level = G.Level.generate(fi, run.seed, { enemyMul: this.heresy.crowded ? 1.4 : 1, weapon }));
-    this.hpScale = 1 + 0.1 * fi;
+    this.hpScale = 1 + 0.075 * fi;
     this.dmgScale = (1 + 0.07 * fi) * (this.heresy.hungry ? 1.3 : 1);
     this.ents = [];
     this.parts = [];
@@ -694,13 +694,19 @@
     if (D.RELIC_AFTER.has(cur)) this.offerRelics(null, () => this.loadFloor(next));
     else this.loadFloor(next);
   };
+  const BOSS_END = {
+    redactor: ['THE REDACTOR IS STRUCK FROM THE RECORD', [1, 0.4, 0.4]],
+    orthogon: ['THE ORTHOGON FOLDS INTO A POINT AND IS GONE', [0.6, 0.95, 1]],
+    oculus: ['THE OCULUS CLOSES FOR THE LAST TIME', [1, 0.35, 0.4]],
+  };
   Game.bossKilled = function (e) {
-    if (e.type === 'redactor') {
+    if (BOSS_END[e.type]) {
       const A2 = this.level.arena;
       this.spawn('exitwell', A2.cx, A2.cy);
       this.level.lights.push({ x: A2.cx, y: A2.cy, rad: 8, i: 1.2, c: [0.6, 0.35, 1] });
       this.level.bake();
-      this.msg('THE REDACTOR IS STRUCK FROM THE RECORD', [1, 0.4, 0.4], 4);
+      this.eyelid = 0;
+      this.msg(BOSS_END[e.type][0], BOSS_END[e.type][1], 4);
       this.msg('A WELL OPENS IN THE FLOOR', [0.8, 0.6, 1], 4);
       this.bars = [];
       this.flash([1, 1, 1], 0.5);
@@ -833,7 +839,10 @@
     const halluc = playing && this.player.mods.alwaysHalluc ? 0.15 : 0;
     const dist = o.distort;
     f.corrupt = (luc < 0.6 ? Math.pow((0.6 - luc) / 0.6, 1.5) * 0.32 : 0) * dist + halluc * 0.3;
-    f.wallWarp = (luc < 0.45 ? (0.45 - luc) / 0.45 : 0) * dist;
+    const lst = playing && this.level ? this.level.st : null;
+    // the walls of the Eye breathe, with a heartbeat
+    const beat = Math.pow(Math.max(0, Math.sin(this.time * 2.4)), 6) + 0.5 * Math.pow(Math.max(0, Math.sin(this.time * 2.4 - 0.5)), 8);
+    f.wallWarp = (luc < 0.45 ? (0.45 - luc) / 0.45 : 0) * dist + (lst && lst.breathe ? lst.breathe * (0.55 + 0.45 * beat) : 0);
     f.collapse += (f.collapseTarget - f.collapse) * Math.min(1, dt * 1.5);
     d.shakeX = (Math.random() * 2 - 1) * f.shake;
     d.shakeY = (Math.random() * 2 - 1) * f.shake;
@@ -843,13 +852,15 @@
     f.flash = Math.max(0, f.flash - dt * 2.6);
     d.invert = o.calm ? 0 : f.invert * 0.5;
     f.invert = Math.max(0, f.invert - dt * 4);
-    d.aberr = ((1 - luc) * (1 - luc) * 0.014 + halluc * 0.004) * dist + (playing && this.player.hurtT > 0.7 ? 0.004 : 0);
+    d.aberr = ((1 - luc) * (1 - luc) * 0.014 + halluc * 0.004) * dist + (playing && this.player.hurtT > 0.7 ? 0.004 : 0) + (lst && lst.aberr ? lst.aberr * dist : 0);
     d.warp = luc < 0.3 ? ((0.3 - luc) / 0.3) * dist : 0;
     d.scan = o.crt ? 0.55 : 0;
     d.curve = o.crt ? 0.035 : 0;
     d.noise = o.crt ? 0.022 : 0.006;
     const lowHp = playing && this.player.hp / this.player.maxHp < 0.3;
-    d.vig = 0.5 + (lowHp ? 0.35 + 0.15 * Math.sin(this.time * 6) : 0);
+    // the vignette eases off in the dark, where the edges of the screen are all you have
+    d.vig = (0.5 + (lowHp ? 0.35 + 0.15 * Math.sin(this.time * 6) : 0)) * (1 - 0.4 * (playing ? this.dark || 0 : 0));
+    d.bright = o.bright;
     d.glow = 1;
     const wv = d.waves;
     wv.fill(0);
@@ -867,7 +878,7 @@
     }
     const hpK = playing ? this.player.hp / this.player.maxHp : 1;
     const hurt = playing ? Math.max(0, this.player.hurtT) : 0;
-    d.sat = 1 - (hpK < 0.35 ? (0.35 - hpK) * 1.6 : 0) - (1 - luc) * 0.25;
+    d.sat = (lst && lst.sat ? lst.sat : 1) - (hpK < 0.35 ? (0.35 - hpK) * 1.6 : 0) - (1 - luc) * 0.25;
     d.tint = [1 + hurt * 0.15, 1 - hurt * 0.12, 1 - hurt * 0.12 + (1 - luc) * 0.06];
     d.speed = playing && this.player.dashT > 0 && !o.calm ? 0.8 : Math.max(0, d.speed - dt * 6);
     f.fovKick = Math.max(0, f.fovKick - dt * 40);
@@ -1164,7 +1175,7 @@
       e.y = ny;
       if (e.team === 'player') {
         for (const t of this.ents) {
-          if (!t.alive || t.kind !== 'enemy') continue;
+          if (!t.alive || t.intangible || t.kind !== 'enemy') continue;
           const dd = (t.x - e.x) ** 2 + (t.y - e.y) ** 2, rr = t.r + e.r;
           if (dd < rr * rr) {
             if (!e.blast) this.damageEnemy(t, e.dmg, { x: e.x, y: e.y, dirX: e.vx / sp, dirY: e.vy / sp, knock: 0.4 });
@@ -1227,17 +1238,27 @@
     const x = P.x + Math.cos(a) * r, y = P.y + Math.sin(a) * r;
     if (L.solid(Math.floor(x), Math.floor(y))) return;
     const H = st.ceilH;
-    const id = st.id;
-    if (id === 0) {
+    const id = st.key;
+    if (id === 'archive') {
       if (G.rand.chance(0.04)) this.part({ x, y, z: G.rand.range(0.3, H), vx: G.rand.range(-0.2, 0.2), vy: G.rand.range(-0.2, 0.2), vz: -0.15, life: 6, g: GL.ch(G.rand.pick(['=', '~', '-'])), r: 0.8, gr: 0.7, b: 0.5, lit: true });
       else this.part({ x, y, z: G.rand.range(0, H), vx: G.rand.range(-0.08, 0.08), vy: G.rand.range(-0.08, 0.08), vz: G.rand.range(-0.03, 0.05), life: G.rand.range(3, 6), g: GL.id('sym:dot'), r: 1, gr: 0.85, b: 0.6, lit: true });
-    } else if (id === 1) {
+    } else if (id === 'drowned') {
       if (G.rand.chance(0.35)) this.part({ x, y, z: H - 0.05, vz: -0.5, grav: 6, life: 2, g: GL.ch("'"), r: 0.6, gr: 0.95, b: 1, lit: true, splat: L.flags[Math.floor(y) * L.w + Math.floor(x)] & G.Data.F.WATER ? null : { c: [0.05, 0.12, 0.12], em: 0 }, drip: true });
       else this.part({ x, y, z: G.rand.range(0, 0.6), vz: 0.25, life: 2.5, g: GL.id('sym:ring'), r: 0.5, gr: 0.9, b: 0.9, lit: true });
-    } else if (id === 2) {
+    } else if (id === 'ossuary') {
       this.part({ x, y, z: H, vx: G.rand.range(-0.1, 0.1), vy: G.rand.range(-0.1, 0.1), vz: -0.22, life: 5, g: GL.ch(G.rand.pick(['.', ',', '`'])), r: 0.85, gr: 0.75, b: 0.7, lit: true });
-    } else if (id === 3) {
+    } else if (id === 'choir') {
       this.part({ x, y, z: G.rand.range(0, 0.6), vz: G.rand.range(0.1, 0.35), vx: G.rand.range(-0.1, 0.1), life: 6, g: GL.id(G.rand.chance(0.7) ? 'sym:dot' : 'sym:star'), r: 0.85, gr: 0.6, b: 1, glow: 0.6, add: true });
+    } else if (id === 'folded') {
+      // motes that move only along the axes, turning at right angles
+      const ax = G.rand.int(0, 2), sp = G.rand.chance(0.5) ? 0.35 : -0.35;
+      this.part({ x, y, z: G.rand.range(0.1, H - 0.1), vx: ax === 0 ? sp : 0, vy: ax === 1 ? sp : 0, vz: ax === 2 ? sp * 0.5 : 0, life: G.rand.range(3, 6), g: GL.id(G.rand.chance(0.6) ? 'bx:5' : 'bx:10'), r: 0.5, gr: 0.9, b: 1, glow: 0.7, add: true });
+    } else if (id === 'prism') {
+      const h = G.rand.next() * 6, c = [Math.max(0, Math.min(1, Math.abs(h - 3) - 1)), Math.max(0, Math.min(1, 2 - Math.abs(h - 2))), Math.max(0, Math.min(1, 2 - Math.abs(h - 4)))];
+      this.part({ x, y, z: G.rand.range(0, H), vx: G.rand.range(-0.05, 0.05), vy: G.rand.range(-0.05, 0.05), vz: G.rand.range(-0.04, 0.08), life: G.rand.range(3, 6), g: GL.id(G.rand.chance(0.5) ? 'sym:diamond' : 'sym:tri'), r: c[0], gr: c[1], b: c[2], glow: 0.8, add: true });
+    } else if (id === 'eye') {
+      if (G.rand.chance(0.25)) this.part({ x, y, z: H - 0.05, vz: -0.35, grav: 3, life: 3, g: GL.ch(G.rand.pick(['.', ','])), r: 0.7, gr: 0.08, b: 0.12, lit: true, drip: true, splat: { c: [0.25, 0.02, 0.04], em: 0 } });
+      else this.part({ x, y, z: G.rand.range(0, H), vx: G.rand.range(-0.06, 0.06), vy: G.rand.range(-0.06, 0.06), vz: G.rand.range(-0.02, 0.02), life: G.rand.range(4, 7), g: GL.id(G.rand.chance(0.85) ? 'sym:dot' : 'sym:eye'), r: 1, gr: 0.3, b: 0.35, glow: 0.4, lit: true });
     } else {
       this.part({ x, y, z: G.rand.range(0, 0.4), vz: G.rand.range(0.15, 0.4), life: 6, g: GL.ch(G.rand.pick(['.', ',', "'", '-'])), r: 0.1, gr: 0.08, b: 0.08 });
     }
@@ -1319,8 +1340,22 @@
   };
 
   // ------------------------------------------------------------------ rendering
-  Game.renderPlay = function () {
+  // Dark sight. The eye adapts to the scene's measured brightness (slowly into the dark,
+  // quickly back to light), and as the scene darkens the renderer writes the outline of walls,
+  // beacons mark what can be used, and edge markers point at threats you cannot see.
+  Game.adaptEyes = function (dt) {
+    const lum = R.rawLum, o = this.opts;
+    const target = this.level.st.ink ? 1 : G.clamp(0.13 / Math.max(0.012, lum), 1, 2.8);
+    const rate = target > R.exposure ? 1.8 : 5;
+    R.exposure += (target - R.exposure) * (1 - Math.exp(-rate * dt));
+    const dark = this.level.st.ink ? 0 : G.clamp((0.11 - lum) / 0.08, 0, 1);
+    this.dark = (this.dark || 0) + (dark - (this.dark || 0)) * (1 - Math.exp(-2.5 * dt));
+    R.guide = o.guide ? 0.12 + this.dark * 0.45 : 0;
+  };
+
+  Game.renderPlay = function (dt) {
     const P = this.player, dsp = this.dsp;
+    this.adaptEyes(Math.min(0.1, dt || 1 / 60));
     if (this.state !== 'play') this.computeCamera();
     const fov = this.opts.fov * P.mods.fov + this.fx.fovKick;
     R.setupCamera(this.cam, fov, dsp.cellW, dsp.cellH);
@@ -1355,6 +1390,11 @@
     R.drawParticles(this, dsp);
     R.drawLines(this, dsp);
     R.drawVoids(this, dsp);
+    if (this.opts.guide && this.state !== 'descend') UI.beacons(this);
+    if (this.eyelid > 0) {
+      UI.eyelids(this, this.eyelid);
+      this.eyelid = Math.max(0, this.eyelid - (dt || 1 / 60) * 2.5);
+    }
     this.dynLights = [];
     UI.whispers(this);
     UI.bars(this);
@@ -1381,7 +1421,7 @@
   // Title / menu backdrop: the colossus over a skyline of spires.
   const backLevel = { st: null, flags: new Uint8Array(1), text: [], secretOpen: false, w: 1 };
   Game.backdrop = function (kind, dim) {
-    backLevel.st = Object.assign({}, D.STRATA[3], { farDist: 1e9, wallSet: 'box', ink: kind === 'void' });
+    backLevel.st = Object.assign({}, D.STRATA.find((x) => x.key === 'choir'), { farDist: 1e9, wallSet: 'box', ink: kind === 'void' });
     R.backdrop(this, kind, backLevel);
     if (dim) UI.dim(0, 0, this.dsp.cols, this.dsp.rows, dim);
   };
@@ -1665,6 +1705,8 @@
           o.sharp = v[G.clamp(v.indexOf(o.sharp) + d, 0, v.length - 1)];
           this.resize();
         }],
+        ['BRIGHTNESS', () => `${Math.round(o.bright * 100)}%`, (d) => (o.bright = Math.round(G.clamp(o.bright + d * 0.05, 0.8, 1.6) * 100) / 100)],
+        ['DARK SIGHT (OUTLINES, BEACONS)', () => (o.guide ? 'ON' : 'OFF'), () => (o.guide = !o.guide)],
         ['SHOW FRAME RATE', () => (o.fps ? 'ON' : 'OFF'), () => (o.fps = !o.fps)],
         ['BACK', () => '', null],
       ];
@@ -1697,7 +1739,7 @@
         'WEAPONS  1-6, wheel, Q for last     CAMERA  V switches first / third person',
         'PAUSE  ESC       Gamepads work too.',
         '',
-        'Find the well on each floor and descend. Ten floors, five strata, two things waiting at the bottom of them.',
+        'Find the well on each floor and descend. Thirteen floors, eight strata: the library first, then places that were never written. Four things wait at the ends of them.',
         'VITAE is your life. LUCIDITY is your mind: darkness, gazes, songs and forbidden reading wear it down. Madness makes you hit harder, shows you walls that are lies, and fills the dark with things that are not there.',
         'OIL feeds your lantern. Some creatures only exist in light; some only in darkness.',
         'INK is kept forever. Spend it in the Scriptorium.',

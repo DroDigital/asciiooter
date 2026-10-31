@@ -109,10 +109,102 @@
   };
 
   // ---- patterns ----
+  // Patterns may also set patEm: light the surface gives off by itself (wireframes, veins, eyes).
+  let patEm = 0;
+  function hue(h, out, k) {
+    const x = (h - Math.floor(h)) * 6;
+    out[0] = k * Math.max(0, Math.min(1, Math.abs(x - 3) - 1));
+    out[1] = k * Math.max(0, Math.min(1, 2 - Math.abs(x - 2)));
+    out[2] = k * Math.max(0, Math.min(1, 2 - Math.abs(x - 4)));
+  }
+  // the Eye's heartbeat, shared by its walls and floors
+  const beat = (t) => Math.pow(Math.max(0, Math.sin(t * 2.4)), 6) + 0.5 * Math.pow(Math.max(0, Math.sin(t * 2.4 - 0.5)), 8);
+  let BEAT = 0; // beat(time), once per frame
   function wallPattern(mat, u, z, th, time, out) {
     // returns brightness multiplier; may tint out[0..2]
     out[0] = out[1] = out[2] = 1;
+    patEm = 0;
     switch (mat) {
+      case M.LATTICE: {
+        // a wireframe: glowing edges on a near-black face, and a fold line that walks across it
+        const gu = u * 2, gz = z * 2;
+        const eu = Math.abs(gu - Math.round(gu)), ez = Math.abs(gz - Math.round(gz));
+        const fold = Math.abs(((u + z * 0.5 - time * 0.12 + th * 0.31) % 1 + 1) % 1 - 0.5);
+        if (eu < 0.035 || ez < 0.035) {
+          patEm = 0.55;
+          return 1.1;
+        }
+        if (fold < 0.012) {
+          patEm = 0.8;
+          out[0] = 1.3;
+          return 1.2;
+        }
+        const iu = Math.abs(gu - Math.floor(gu) - 0.5), iz = Math.abs(gz - Math.floor(gz) - 0.5);
+        if (Math.abs(Math.max(iu, iz) - 0.3) < 0.015) {
+          patEm = 0.12;
+          return 0.6;
+        }
+        return 0.07;
+      }
+      case M.MIRROR: {
+        const v = Math.abs(Math.sin(u * 7 + z * 3 + th) + Math.sin(u * 3 - z * 9));
+        const sheen = Math.pow(Math.max(0, Math.sin(u * 3 + z * 0.7 - time * 0.5)), 12);
+        if (v < 0.05) {
+          patEm = 0.2;
+          return 1.3;
+        }
+        return 0.14 + 0.6 * sheen;
+      }
+      case M.PRISM: {
+        // light split into bands that slide over every surface
+        const h = u * 0.7 + z * 0.45 + th * 0.137 + time * 0.04;
+        const f = Math.abs(((u * 3 + z * 2) % 1 + 1) % 1 - 0.5) * 2;
+        hue(h, out, 1.05);
+        out[0] += 0.1;
+        out[1] += 0.1;
+        out[2] += 0.1;
+        patEm = 0.05 + 0.12 * f * f;
+        return 0.22 + 0.6 * f * f;
+      }
+      case M.VEIN: {
+        const v = Math.abs(Math.sin(u * 6 + Math.sin(z * 4 + th) * 1.8) * Math.cos(z * 5 + u * 2 + th * 0.3));
+        const b = BEAT;
+        if (v < 0.07) {
+          out[0] = 1.3;
+          out[1] = 0.55;
+          out[2] = 0.6;
+          patEm = 0.18 + 0.4 * b;
+          return 1.1;
+        }
+        return 0.38 + 0.12 * Math.sin(u * 13 + z * 7) + 0.08 * b;
+      }
+      case M.EYES: {
+        // eyes, open in the flesh, all looking at you; now and then one blinks
+        const cu = u * 2, cz = z * 2.4;
+        const iu = Math.floor(cu), iz = Math.floor(cz);
+        const h = G.hash2(iu + th * 3, iz, 41);
+        const base = 0.42 + 0.1 * Math.sin(u * 11 + z * 6);
+        if (h < 0.35) return base;
+        const fu = cu - iu - 0.5, fz = cz - iz - 0.5;
+        const s = 0.75 + 0.25 * h;
+        const ex = fu / (0.36 * s), ez = fz / (0.2 * s);
+        const r2 = ex * ex + ez * ez;
+        if (r2 > 1) return r2 < 1.25 ? base * 0.45 : base;
+        const blink = ((time * 0.21 + h * 7) % 1) < 0.035;
+        if (blink) return Math.abs(fz) < 0.02 ? 0.15 : base * 0.9;
+        const rr = Math.sqrt(fu * fu + fz * fz) / s;
+        const pupil = 0.045 + 0.02 * Math.sin(time * 0.9 + h * 20);
+        if (rr < pupil) return 0.03;
+        if (rr < 0.13) {
+          hue(0.08 + h * 0.35, out, 1.3);
+          patEm = 0.3;
+          return 0.9 - rr * 2;
+        }
+        out[0] = 1.15;
+        out[1] = 1.05;
+        out[2] = 1.0;
+        return 1.0 - r2 * 0.25;
+      }
       case M.BRICK: {
         const row = Math.floor(z * 4);
         const bu = u * 2 + (row & 1) * 0.5;
@@ -182,7 +274,34 @@
   }
 
   function floorPattern(pat, wx, wy, time) {
+    patEm = 0;
     switch (pat) {
+      case 'grid': {
+        const ex = Math.abs(wx - Math.round(wx)), ey = Math.abs(wy - Math.round(wy));
+        const wave = Math.abs((((wx + wy) * 0.25 - time * 0.35) % 1 + 1) % 1 - 0.5);
+        if (ex < 0.03 || ey < 0.03) {
+          patEm = wave < 0.04 ? 1.2 : 0.4;
+          return 1;
+        }
+        return 0.1;
+      }
+      case 'facets': {
+        const a = (wx + wy) * 0.7, b = (wx - wy) * 0.7;
+        const fa = a - Math.floor(a), fb = b - Math.floor(b);
+        if (Math.min(fa, 1 - fa, fb, 1 - fb) < 0.03) {
+          patEm = 0.15;
+          return 1.2;
+        }
+        return 0.35 + 0.2 * G.hash2(Math.floor(a), Math.floor(b), 13);
+      }
+      case 'membrane': {
+        const v = Math.abs(Math.sin(wx * 2.3 + Math.sin(wy * 1.9 + time * 0.3) * 1.6) * Math.cos(wy * 2.9 - wx * 0.7));
+        if (v < 0.06) {
+          patEm = 0.1 + 0.3 * BEAT;
+          return 1.2;
+        }
+        return 0.4 + 0.15 * Math.sin(wx * 7 + wy * 5) + 0.1 * BEAT;
+      }
       case 'planks': {
         const b = Math.floor(wy * 2.5), f = wy * 2.5 - b;
         if (f < 0.06) return 0.5;
@@ -219,8 +338,13 @@
     return 0.6;
   }
 
-  function ceilPattern(pat, wx, wy) {
+  function ceilPattern(pat, wx, wy, time) {
+    patEm = 0;
     switch (pat) {
+      case 'grid':
+      case 'facets':
+      case 'membrane':
+        return floorPattern(pat, wx * 0.7, wy * 0.7, time) * 0.8;
       case 'beams': {
         const f = wx * 0.5 - Math.floor(wx * 0.5);
         return f < 0.14 ? 1.35 : 0.55;
@@ -236,8 +360,112 @@
     return 0.6;
   }
 
+  // A tesseract the size of a mountain range turns in the sky of the Folded Geometry. Its
+  // vertices are rotated in four dimensions and projected once per sky refresh.
+  const PV = new Float32Array(32), PE = [], HT = [0, 0, 0];
+  for (let a = 0; a < 16; a++) for (let b = 0; b < 4; b++) if (!(a & (1 << b))) PE.push(a, a | (1 << b));
+  let pvT = -1;
+  function polyVerts(time) {
+    const key = Math.floor(time * 5);
+    if (key === pvT) return;
+    pvT = key;
+    const t = key / 5, a1 = t * 0.11, a2 = t * 0.07, a3 = t * 0.05;
+    for (let v = 0; v < 16; v++) {
+      let x = v & 1 ? 1 : -1, y = v & 2 ? 1 : -1, z = v & 4 ? 1 : -1, w = v & 8 ? 1 : -1;
+      let c = Math.cos(a1), s1 = Math.sin(a1);
+      [x, w] = [x * c - w * s1, x * s1 + w * c];
+      c = Math.cos(a2);
+      s1 = Math.sin(a2);
+      [y, z] = [y * c - z * s1, y * s1 + z * c];
+      c = Math.cos(a3);
+      s1 = Math.sin(a3);
+      [x, z] = [x * c - z * s1, x * s1 + z * c];
+      const k4 = 1 / (2.6 - w), px = x * k4, py = y * k4, pz = z * k4;
+      const k3 = 1 / (3 - pz);
+      PV[v * 2] = Math.PI / 2 + px * k3 * 1.5;
+      PV[v * 2 + 1] = 0.78 + py * k3 * 1.1;
+    }
+  }
+  function skyExotic(kind, az, el, time, out) {
+    const sa = Math.floor(az * 160), se = Math.floor(el * 160);
+    const star = G.hash2(sa, se, 91) > 0.993 ? 0.5 + 0.5 * Math.sin(time * 2 + sa) : 0;
+    if (kind === 'polytope') {
+      polyVerts(time);
+      let r = 0.01 + el * 0.02 + star * 0.6, g = 0.015 + el * 0.03 + star * 0.7, b = 0.04 + el * 0.06 + star;
+      let best = 9;
+      const ax = G.angleDiff(Math.PI / 2, az) + Math.PI / 2;
+      for (let k = 0; k < PE.length; k += 2) {
+        const x1 = PV[PE[k] * 2], y1 = PV[PE[k] * 2 + 1], x2 = PV[PE[k + 1] * 2], y2 = PV[PE[k + 1] * 2 + 1];
+        const vx = x2 - x1, vy = y2 - y1, wx = ax - x1, wy = el - y1;
+        const h = Math.max(0, Math.min(1, (wx * vx + wy * vy) / (vx * vx + vy * vy + 1e-9)));
+        const dx = wx - vx * h, dy = wy - vy * h;
+        const d = dx * dx + dy * dy;
+        if (d < best) best = d;
+      }
+      const line = Math.exp(-best / 0.00012), halo = Math.exp(-best / 0.002) * 0.25;
+      r += line * 0.8 + halo * 0.2;
+      g += line * 0.95 + halo * 0.5;
+      b += line + halo * 0.8;
+      // a horizon of grid lines falling away
+      const gl = Math.abs(((az * 6 / Math.PI) % 1 + 1) % 1 - 0.5);
+      if (el < 0.25 && gl < 0.02) b += 0.25 * (1 - el / 0.25);
+      out[0] = r;
+      out[1] = g;
+      out[2] = b;
+      return line * 0.9 + halo;
+    }
+    if (kind === 'aurora') {
+      let r = 0.03 + star * 0.8, g = 0.01 + star * 0.8, b = 0.06 + el * 0.05 + star * 0.9, glow = 0;
+      for (let k = 0; k < 3; k++) {
+        const yk = 0.5 + k * 0.18 + 0.12 * Math.sin(az * 3 + k * 2.1 + time * 0.15) + 0.04 * Math.sin(az * 9 - time * 0.4 + k);
+        const band = Math.exp(-(((el - yk) / 0.05) ** 2)) * (0.55 + 0.45 * Math.sin(az * 26 + time * 0.8 + k * 5));
+        if (band < 0.02) continue;
+        hue(az / G.TAU * 2 + k * 0.33 + time * 0.03 + el * 0.4, HT, band * 0.9);
+        r += HT[0];
+        g += HT[1];
+        b += HT[2];
+        glow += band * 0.5;
+      }
+      out[0] = r;
+      out[1] = g;
+      out[2] = b;
+      return Math.min(0.8, glow);
+    }
+    // iris: from inside, the eye's own iris is the whole sky, its pupil straight overhead
+    const rr = 1 - G.clamp(el, 0, 1.59) / 1.59;
+    const dil = 0.2 + 0.06 * Math.sin(time * 0.7) + 0.04 * beat(time);
+    let r, g, b, glow = 0;
+    if (rr < dil) {
+      r = g = b = 0;
+      if (rr > dil - 0.015) r = 0.25;
+    } else if (rr < 0.82) {
+      const q = (rr - dil) / (0.82 - dil);
+      const fib = 0.5 + 0.5 * Math.sin(az * 70 + G.noise2(az * 9, rr * 6, 3) * 6);
+      const crypt = G.noise2(az * 14, rr * 18, 8) > 0.72 ? 0.35 : 1;
+      const k = (0.45 + 0.55 * fib) * crypt * (1 - q * 0.4);
+      r = (0.55 + 0.35 * q) * k;
+      g = (0.35 - 0.2 * q) * k + 0.05;
+      b = 0.12 * k;
+      glow = fib > 0.85 ? 0.25 : 0;
+    } else if (rr < 0.88) {
+      r = 0.06;
+      g = 0.02;
+      b = 0.03;
+    } else {
+      const v = Math.abs(Math.sin(az * 18 + Math.sin(rr * 40) * 1.5));
+      r = 0.75;
+      g = v < 0.08 ? 0.15 : 0.55;
+      b = v < 0.08 ? 0.18 : 0.5;
+    }
+    out[0] = r;
+    out[1] = g;
+    out[2] = b;
+    return glow;
+  }
+
   // The sky beneath the world. Returns rgb into out, and glow.
   function skyColor(kind, az, el, time, out, boss) {
+    if (kind === 'polytope' || kind === 'aurora' || kind === 'iris') return skyExotic(kind, az, el, time, out);
     if (kind === 'sea') {
       const c = Math.abs(Math.sin(az * 9 + time * 0.6 + Math.sin(el * 11 - time)) * Math.sin(el * 17 - time * 0.4 + Math.cos(az * 7)));
       const k = c > 0.82 ? 1 : c * 0.35;
@@ -355,6 +583,7 @@
     X0 = x0;
     X1 = x1;
     const L = game.level, st = L.st, P = game.player, cam = R.cam;
+    BEAT = beat(game.time);
     const W = L.w, H = L.h, tiles = L.tiles, flags = L.flags, plink = L.plink, portals = L.portals, seen = L.seen;
     const time = game.time, frame = game.frame;
     const px = cam.x, py = cam.y, dirX = cam.dirX, dirY = cam.dirY, plX = cam.plX, plY = cam.plY;
@@ -377,7 +606,7 @@
     const warp = game.fx.wallWarp;
     const secretVis = L.secretOpen;
     const skyKind = st.sky || 'cosmos';
-    const bossSky = !!(L.arena && st.id === 4);
+    const bossSky = !!(L.arena && st.key === 'lacuna');
     const pfloor = st.floorPat, pceil = st.ceilPat;
     const fcol = st.floor, ccol = st.ceil;
     const dmask = L.dmask, dtile = L.dtile;
@@ -522,6 +751,12 @@
           const z = camZ + ((hz - (y + 0.5)) * t) / projY;
           const p = wallPattern(mat, u, z, th, time, lt);
           let r = wc[0] * p * lt[0] * wlR * sideK, g = wc[1] * p * lt[1] * wlG * sideK, b = wc[2] * p * lt[2] * wlB * sideK;
+          if (patEm) {
+            r += wc[0] * lt[0] * patEm;
+            g += wc[1] * lt[1] * patEm;
+            b += wc[2] * lt[2] * patEm;
+            sGl[i] = patEm * 0.5;
+          }
           if (crack > 0.04) {
             const cv = Math.abs(Math.sin(u * 23 + th + Math.sin(z * 9 + th) * 2) + Math.sin(z * 17 + u * 11 + th * 0.7));
             if (cv < crack * 0.45) {
@@ -594,7 +829,7 @@
           skyCount++;
           continue;
         }
-        let ar, ag, ab, m;
+        let ar, ag, ab, m, pe = 0;
         if (isFloor) {
           if (fl & F.WATER) {
             const wv = 0.55 + 0.25 * Math.sin(wx * 2.7 + time * 1.6 + Math.sin(wy * 2.2 + time)) + 0.2 * Math.sin(wy * 5.3 - time * 2.1);
@@ -604,19 +839,21 @@
             m = MAT_WATER;
           } else {
             const p = floorPattern(pfloor, wx, wy, time);
+            pe = patEm;
             ar = fcol[0] * p;
             ag = fcol[1] * p;
             ab = fcol[2] * p;
             m = MAT_FLOOR;
           }
         } else {
-          const p = ceilPattern(pceil, wx, wy);
+          const p = ceilPattern(pceil, wx, wy, time);
+          pe = patEm;
           ar = ccol[0] * p;
           ag = ccol[1] * p;
           ab = ccol[2] * p;
           m = MAT_CEIL;
         }
-        let emR = 0, emG = 0, emB = 0;
+        let emR = pe ? ar * pe * 2 : 0, emG = pe ? ag * pe * 2 : 0, emB = pe ? ab * pe * 2 : 0;
         if (isFloor && ti >= 0 && dmask[ti]) {
           const list = dtile[ti];
           for (let q = 0; q < list.length; q++) {
@@ -688,12 +925,24 @@
 
   // Water mirrors the wall in the same (rippled) column. Runs over the whole screen once every
   // strip is done, because a ripple reads its neighbouring columns.
-  function waterPass(time) {
+  // Polished floors (the Prism Abyss) mirror the walls without the ripple.
+  function waterPass(time, mirror) {
     for (let y = 0; y < SH; y++) {
       const ripple = Math.round(Math.sin(y * 0.55 + time * 2.2) * 1.4);
       for (let x = 0; x < SW; x++) {
         const i = y * SW + x;
-        if (sM[i] !== MAT_WATER) continue;
+        if (sM[i] !== MAT_WATER) {
+          if (!mirror || sM[i] !== MAT_FLOOR) continue;
+          const ry = Math.floor(2 * cBot[x] - y);
+          if (ry < 0 || ry >= SH) continue;
+          const j = ry * SW + x;
+          if (sM[j] !== MAT_WALL) continue;
+          const k = mirror * Math.max(0, 1 - (y - cBot[x]) / (SH * 0.35));
+          sR[i] += sR[j] * k;
+          sG[i] += sG[j] * k;
+          sB[i] += sB[j] * k;
+          continue;
+        }
         const xr = G.clamp(x + ripple, 0, SW - 1);
         const ry = Math.floor(2 * cBot[xr] - y);
         if (ry < 0 || ry >= SH) continue;
@@ -720,10 +969,40 @@
     X0 = 0;
     X1 = SW;
     R.skyFraction = sky / (SW * SH);
-    if (game.level.st.water > 0) waterPass(game.time);
+    const lst = game.level.st;
+    if (lst.water > 0 || lst.mirror > 0) waterPass(game.time, lst.mirror || 0);
     renderSprites(game);
     R.renderViewmodel(game);
+    exposurePass(game.level.st.ink);
   };
+
+  // ---- dark sight ----
+  // The eye adapts: the game sets R.exposure from the scene's measured brightness. Shadows are
+  // lifted by up to that factor while highlights keep their value (c*k / (1 + (k-1)*c)), so a
+  // dark corridor opens up without the lit parts washing out. R.rawLum reports the scene's
+  // brightness before adaptation, for the next frame.
+  R.exposure = 1;
+  R.rawLum = 0.2;
+  R.guide = 0;
+  function exposurePass(ink) {
+    const n = SW * SH;
+    let acc = 0, cnt = 0;
+    for (let i = 0; i < n; i += 7) {
+      if (sM[i] === MAT_SKY) continue;
+      acc += 0.3 * sR[i] + 0.59 * sG[i] + 0.11 * sB[i];
+      cnt++;
+    }
+    R.rawLum = cnt ? acc / cnt : 0.2;
+    const k = R.exposure;
+    if (ink || k < 1.01) return;
+    const km = k - 1;
+    for (let i = 0; i < n; i++) {
+      const r = sR[i], g = sG[i], b = sB[i];
+      sR[i] = r > 0 ? (r * k) / (1 + km * r) : r;
+      sG[i] = g > 0 ? (g * k) / (1 + km * g) : g;
+      sB[i] = b > 0 ? (b * k) / (1 + km * b) : b;
+    }
+  }
 
   // ---- models ----
   // Each model is rasterized in two passes: first its distance field over the sprite's screen
@@ -1379,6 +1658,34 @@
     }
     put(DSP, ci, g, fr * 1.3, fg * 1.3, fb * 1.3, fr * 0.42, fg * 0.42, fb * 0.42, gl);
   }
+  // Which of a cell's 2x4 samples lie on a structural edge: where a wall meets the floor or
+  // ceiling, or where a wall's depth jumps between neighbouring columns (a corner or doorway).
+  function contourMask(cx, cy) {
+    let mask = 0;
+    const y0 = cy * 4;
+    for (let j = 0; j < 2; j++) {
+      const x = cx * 2 + j;
+      if (cTile[x] < 0 && zbuf[x] > 40) continue;
+      const top = cTop[x], bot = cBot[x];
+      const rb = Math.floor(bot) - y0;
+      if (rb >= 0 && rb < 4) mask |= 1 << (rb * 2 + j);
+      const rt = Math.floor(top) - y0;
+      if (rt >= 0 && rt < 4) mask |= 1 << (rt * 2 + j);
+      if (x > 0) {
+        const za = zbuf[x], zb = zbuf[x - 1];
+        if (Math.abs(za - zb) > 0.18 * Math.min(za, zb) + 0.05) {
+          // the nearer of the two columns carries the edge
+          const tt = za < zb ? top : cTop[x - 1], bb = za < zb ? bot : cBot[x - 1];
+          for (let r = 0; r < 4; r++) {
+            const y = y0 + r + 0.5;
+            if (y > tt && y < bb) mask |= 1 << (r * 2 + j);
+          }
+        }
+      }
+    }
+    return mask;
+  }
+
   R.toCells = function (game, DSP) {
     const L = game.level, st = L.st, sets = G.Glyphs.sets, cam = R.cam, P = game.player;
     const time = game.time;
@@ -1392,6 +1699,9 @@
     const mixed = st.wallSet === 'mixed';
     const W = L.w;
     const cx0 = X0 >> 1, cx1 = X1 >> 1;
+    // contour colour: the stratum's accent, pale enough to read as chalk
+    const guide = ink || !P ? 0 : R.guide, gset = sets.ascii;
+    const gR = 0.35 + st.accent[0] * 0.45, gG = 0.33 + st.accent[1] * 0.45, gB = 0.36 + st.accent[2] * 0.45;
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = cx0; cx < cx1; cx++) {
         const ci = cy * cols + cx;
@@ -1502,6 +1812,33 @@
         sg *= 0.125;
         sb *= 0.125;
         const avgL = 0.3 * sr + 0.59 * sg + 0.11 * sb;
+        // ---------- dark sight: where light fails, the outline of the world is still written ----------
+        if (guide > 0 && maxL < 0.11 && dmin < 15) {
+          const cm = contourMask(cx, cy);
+          if (!cm && flN >= 4) {
+            // nearby floor: a chalk grid of tile edges, so walkable space reads in the dark
+            const x = cx * 2 + 1, y = cy * 4 + 2;
+            const rd = rowDist[y];
+            if (y > cam.hz && rd < 7 && !(cPN[x] && rd > cPT[x * K])) {
+              const wx = cam.x + cRdx[x] * rd, wy = cam.y + cRdy[x] * rd;
+              const ex = Math.abs(wx - Math.round(wx)), ey = Math.abs(wy - Math.round(wy));
+              const thr = 0.025 + rd * 0.011;
+              if (ex < thr || ey < thr) {
+                const k = guide * 0.55 * (1 - rd / 7);
+                const cross = ex < thr && ey < thr;
+                put(DSP, ci, G.Glyphs.ch(cross ? '+' : '.'), gR * k + sr, gG * k + sg, gB * k + sb, sr * 0.5, sg * 0.5, sb * 0.5, 0);
+                continue;
+              }
+            }
+          }
+          if (cm) {
+            const k = guide * Math.exp(-dmin * 0.085) * (0.85 + 0.15 * Math.sin(time * 2.1 - dmin * 0.7));
+            if (k > 0.03) {
+              put(DSP, ci, gset.lut[cm] || gset.lut[255], gR * k + sr, gG * k + sg, gB * k + sb, sr * 0.5, sg * 0.5, sb * 0.5, k * 0.25);
+              continue;
+            }
+          }
+        }
         // ---------- darkness: the absence of text ----------
         if (!ink && maxL < 0.018) {
           put(DSP, ci, 0, 0, 0, 0, sr * 0.5, sg * 0.5, sb * 0.5, 0);

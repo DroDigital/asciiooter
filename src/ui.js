@@ -366,6 +366,83 @@
     UI.put(x + 1, y, GL.id('sym:' + sym), [1 * a, 0.15 * a, 0.1 * a], null, a);
   };
 
+  // ---- dark sight: beacons over what can be used, markers for unseen threats ----
+  const BEACON = { exitwell: 'sym:diamond', brazier: 'sym:flame', lectern: 'sym:eye', altar: 'sym:star', remnant: 'sym:moon' };
+  const bprj = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0 };
+  function spent(e) {
+    return (e.type === 'brazier' && e.lit) || (e.type === 'lectern' && e.read) || (e.type === 'altar' && e.used);
+  }
+  function edgeMark(g, ang, col, a, label) {
+    const rel = G.angleDiff(g.cam.a, ang);
+    const cx = C() / 2, cy = Rw() / 2, rx = C() * 0.4, ry = Rw() * 0.36;
+    const x = Math.round(cx + Math.sin(rel) * rx), y = Math.round(cy - Math.cos(rel) * ry);
+    const sym = Math.abs(rel) < 0.6 ? 'arrowU' : Math.abs(rel) > 2.5 ? 'arrowD' : rel > 0 ? 'arrowR' : 'arrowL';
+    const c = [col[0] * a, col[1] * a, col[2] * a];
+    UI.put(x, y, GL.id('sym:' + sym), c, null, a);
+    if (label) UI.text(x - (rel > 0 ? label.length + 1 : -2), y, label, [c[0] * 0.8, c[1] * 0.8, c[2] * 0.8], null, a * 0.4);
+  }
+  UI.beacons = function (g) {
+    const P = g.player, R = G.R, ink = g.level.st.ink, dark = g.dark || 0, t = g.time;
+    const cols = C(), rows = Rw();
+    let threats = 0;
+    for (const e of g.ents) {
+      if (!e.alive || e.isPlayer) continue;
+      const def = e.def, d = Math.hypot(e.x - P.x, e.y - P.y);
+      if (e.type === 'exitwell' && e.seen) e.known = true;
+      if (def.kind === 'enemy') {
+        // a creature that is hunting you, out of sight, close: mark the edge it comes from
+        if (e.seen || e.state === 'idle' || def.stealth || def.phantom || d > 9 || threats >= 6) continue;
+        const a = Math.min(1, dark * (1 - d / 9) * 1.3 + (d < 3 ? 0.35 : 0)) * (0.75 + 0.25 * Math.sin(t * 9 + e.id));
+        if (a < 0.08) continue;
+        threats++;
+        edgeMark(g, Math.atan2(e.y - P.y, e.x - P.x), ink ? [0.6, 0.02, 0.05] : [1, 0.22, 0.15], a, null);
+        continue;
+      }
+      const sym = def.kind === 'pickup' ? 'sym:diamond' : BEACON[e.type];
+      if (!sym || spent(e)) continue;
+      const well = e.type === 'exitwell';
+      let w = well ? (e.known ? 0.3 + 0.7 * dark : 0) : dark * G.clamp(1 - d / 14, 0, 1);
+      if (w < 0.05) continue;
+      const col = ink ? [0.5, 0.05, 0.08] : def.emit || def.col || [1, 0.9, 0.6];
+      if (!e.seen) {
+        if (well && e.known) edgeMark(g, Math.atan2(e.y - P.y, e.x - P.x), col, w * 0.9, `${Math.round(d)}`);
+        continue;
+      }
+      R.project(e.x, e.y, (e.z || 0) + e.h + 0.35, bprj);
+      if (bprj.d <= 0.3) continue;
+      const x = Math.floor(bprj.cx), y = Math.max(0, Math.floor(bprj.cy));
+      if (x < 0 || x >= cols || y >= rows - 3) continue;
+      if (R.cellDepth[y * cols + x] < bprj.d - 0.6) continue; // hidden behind a wall
+      const a = w * (0.65 + 0.35 * Math.sin(t * 3 + e.id));
+      const c = [col[0] * a, col[1] * a, col[2] * a];
+      UI.put(x, y, GL.id(sym), c, null, a);
+      // a falling stroke of light ties the mark to its object
+      const bot = Math.floor(bprj.cy + (e.h * R.cam.projY) / bprj.d / 4 * 0.35);
+      for (let yy = y + 1; yy <= Math.min(bot, rows - 4); yy++) {
+        const f = a * 0.45 * (1 - (yy - y) / (bot - y + 1));
+        if (R.cellDepth[yy * cols + x] < bprj.d - 0.6) break;
+        UI.put(x, yy, GL.ch(':'), [col[0] * f, col[1] * f, col[2] * f], null, f);
+      }
+      if (well && d > 3) UI.text(x + 2, y, `${Math.round(d)}`, [c[0] * 0.8, c[1] * 0.8, c[2] * 0.8], null, a * 0.3);
+    }
+  };
+
+  // The Oculus blinks, and you are inside the eye: lids of flesh close over the screen.
+  UI.eyelids = function (g, k) {
+    const cols = C(), rows = Rw() - 3, half = rows / 2;
+    for (let x = 0; x < cols; x++) {
+      const u = (x - cols / 2) / (cols / 2);
+      const reach = Math.ceil(half * k * (1 - 0.35 * u * u) + (k > 0.98 ? 1 : 0));
+      for (let j = 0; j < reach; j++) {
+        const edge = j === reach - 1;
+        const c = edge ? [0.55, 0.12, 0.16] : [0.16 + 0.04 * Math.sin(x * 0.7 + j), 0.03, 0.04];
+        const gl = edge ? GL.ch(j % 2 ? '~' : '-') : 0;
+        UI.put(x, j, gl, c, [0.12, 0.02, 0.03]);
+        UI.put(x, rows - 1 - j, gl, c, [0.12, 0.02, 0.03]);
+      }
+    }
+  };
+
   // Margins whisper; and they point to the lie in the wall.
   UI.whispers = function (g) {
     for (const w of g.whispers) {

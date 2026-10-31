@@ -16,7 +16,7 @@ uniform vec2 uGrid; uniform vec2 uRes; uniform int uAtlasCols; uniform vec2 uSlo
 uniform vec2 uAtlasSize; uniform float uPad; uniform float uTime; uniform float uScan; uniform float uCurve;
 uniform float uAberr; uniform float uGlow; uniform float uNoise; uniform float uVig; uniform float uFlash;
 uniform vec3 uFlashCol; uniform float uInvert; uniform vec2 uShake; uniform float uWarp; uniform float uDpr;
-uniform vec4 uWave[4]; uniform float uSat; uniform vec3 uTint; uniform float uSpeed;
+uniform vec4 uWave[4]; uniform float uSat; uniform vec3 uTint; uniform float uSpeed; uniform float uBright;
 in vec2 vUv; out vec4 outColor;
 
 vec3 cellAt(vec2 uv){
@@ -77,6 +77,7 @@ void main(){
     }
     col += gs * uGlow / 14.4;
   }
+  col *= uBright; // overall brightness (option, default +11%)
   float sl = 0.5 + 0.5 * sin(gl_FragCoord.y * 3.14159 / max(1.0, uDpr));
   col *= 1.0 - uScan * 0.28 * sl;
   col *= 1.0 - uVig * smoothstep(0.08, 0.55, r2);
@@ -97,7 +98,7 @@ void main(){
       this.gl = gl;
       this.cols = 0;
       this.rows = 0;
-      this.fx = { scan: 0.5, curve: 0.04, aberr: 0, glow: 1, noise: 0.025, vig: 0.55, flash: 0, flashCol: [1, 1, 1], invert: 0, shakeX: 0, shakeY: 0, warp: 0, sat: 1, tint: [1, 1, 1], speed: 0, waves: new Float32Array(16) };
+      this.fx = { scan: 0.5, curve: 0.04, aberr: 0, glow: 1, noise: 0.025, vig: 0.55, flash: 0, flashCol: [1, 1, 1], invert: 0, shakeX: 0, shakeY: 0, warp: 0, sat: 1, tint: [1, 1, 1], speed: 0, bright: 1.11, waves: new Float32Array(16) };
       this._init();
     }
 
@@ -258,6 +259,7 @@ void main(){
       gl.uniform1f(u.uSat, f.sat);
       gl.uniform3f(u.uTint, f.tint[0], f.tint[1], f.tint[2]);
       gl.uniform1f(u.uSpeed, f.speed);
+      gl.uniform1f(u.uBright, f.bright);
       gl.bindVertexArray(this.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
