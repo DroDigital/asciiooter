@@ -7,12 +7,17 @@
     down: new Set(), pressed: new Set(), typed: [],
     mdx: 0, mdy: 0, mx: 0, my: 0, mbtn: [false, false, false], mpressed: [false, false, false], wheel: 0,
     locked: false, moved: false, canvas: null,
+    // the device used last: a controller press or stick push switches on-screen button names to controller buttons
+    usingPad: false,
     pad: { ax: [0, 0, 0, 0], b: [], prev: [], connected: false },
   });
+  // Standard gamepad button indices.
+  In.BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 
   In.init = function (canvas) {
     In.canvas = canvas;
     window.addEventListener('keydown', (e) => {
+      In.usingPad = false;
       if (!In.down.has(e.code)) In.pressed.add(e.code);
       In.down.add(e.code);
       In.typed.push(e.key);
@@ -25,6 +30,7 @@
       In.mbtn = [false, false, false];
     });
     canvas.addEventListener('mousedown', (e) => {
+      In.usingPad = false;
       In.mbtn[e.button] = true;
       In.mpressed[e.button] = true;
       G.Audio.unlock();
@@ -47,6 +53,10 @@
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerlockchange', () => (In.locked = document.pointerLockElement === canvas));
     window.addEventListener('gamepadconnected', () => (In.pad.connected = true));
+    window.addEventListener('gamepaddisconnected', () => {
+      In.pad.connected = false;
+      In.usingPad = false;
+    });
   };
 
   In.lock = function () {
@@ -73,17 +83,33 @@
     p.b.length = 0;
     const gps = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = gps && Array.from(gps).find((g) => g && g.connected);
+    p.connected = !!gp;
     if (!gp) {
       p.ax = [0, 0, 0, 0];
+      p.stickHeld = false;
       return;
     }
-    p.connected = true;
     const dz = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
     p.ax = [dz(gp.axes[0] || 0), dz(gp.axes[1] || 0), dz(gp.axes[2] || 0), dz(gp.axes[3] || 0)];
     for (let i = 0; i < gp.buttons.length; i++) p.b[i] = gp.buttons[i].pressed || gp.buttons[i].value > 0.5;
+    // The left stick steps through menus as the d-pad does (buttons 12-15 are the d-pad).
+    if (p.ax[1] < -0.6) p.b[12] = true;
+    if (p.ax[1] > 0.6) p.b[13] = true;
+    if (p.ax[0] < -0.6) p.b[14] = true;
+    if (p.ax[0] > 0.6) p.b[15] = true;
+    const pressed = p.b.some((v, i) => v && !p.prev[i]);
+    // A stick counts as controller use only when it is pushed past half, on the frame it crosses that line.
+    // A stick left resting outside the dead zone must not take the device back from the keyboard.
+    const stick = [0, 1, 2, 3].some((i) => Math.abs(gp.axes[i] || 0) > 0.5);
+    const stickPushed = stick && !p.stickHeld;
+    p.stickHeld = stick;
+    if (pressed || stickPushed) In.usingPad = true;
+    // A new press also tries to resume audio. Browsers only allow that once the page has had a click or key press.
+    if (pressed) G.Audio.unlock();
   };
   const padDown = (i) => !!In.pad.b[i];
   const padHit = (i) => !!In.pad.b[i] && !In.pad.prev[i];
+  In.padPress = padHit;
 
   In.key = (c) => In.down.has(c);
   In.hit = (c) => In.pressed.has(c);
@@ -109,7 +135,7 @@
   In.lantern = () => In.hit('KeyF') || padHit(3);
   In.camera = () => In.hit('KeyV') || padHit(10) || padHit(11);
   In.weaponDelta = () => In.wheel + (padHit(5) ? 1 : 0) - (padHit(4) ? 1 : 0);
-  In.lastWeapon = () => In.hit('KeyQ');
+  In.lastWeapon = () => In.hit('KeyQ') || padHit(1);
   In.mapHeld = () => In.key('Tab') || In.key('KeyM') || padDown(8);
   In.pause = () => In.hit('Escape') || In.hit('KeyP') || padHit(9);
 
@@ -121,6 +147,14 @@
   In.accept = () => In.hit('Enter') || In.hit('Space') || In.hit('KeyE') || padHit(0);
   In.back = () => In.hit('Escape') || In.hit('Backspace') || padHit(1);
   In.anyStart = () => In.hit('Enter') || In.hit('Space') || In.mpressed[0] || padHit(0) || padHit(9);
+
+  // On-screen button names for the device used last: [keyboard and mouse, controller].
+  const LABELS = {
+    interact: ['E', 'X'], lantern: ['F', 'Y'], camera: ['V', 'R3'], dash: ['SPACE', 'A'], map: ['TAB', 'BACK'],
+  };
+  In.label = (name) => (LABELS[name] ? LABELS[name][In.usingPad ? 1 : 0] : name.toUpperCase());
+  // Replaces {name} tokens in a line of text with the current labels.
+  In.expand = (s) => s.replace(/\{(\w+)\}/g, (_, name) => In.label(name));
 
   In.endFrame = function () {
     In.pressed.clear();

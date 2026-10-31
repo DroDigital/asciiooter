@@ -385,12 +385,12 @@
   ];
 
   D.TIPS = [
-    'Hold TAB to unfold the map of everything you have seen.',
-    'Your lantern burns oil. Press F to put it out - the dark has uses.',
+    'Hold {map} to unfold the map of everything you have seen.',
+    'Your lantern burns oil. Press {lantern} to put it out - the dark has uses.',
     'Low lucidity makes you stronger, and shows you walls that are lies.',
-    'Press V to watch yourself from behind. Some rooms will show you anyway.',
-    'Dash with SPACE. For a moment, nothing can touch you.',
-    'Light braziers with E. Standing near the flame restores your mind.',
+    'Press {camera} to watch yourself from behind. Some rooms will show you anyway.',
+    'Dash with {dash}. For a moment, nothing can touch you.',
+    'Light braziers with {interact}. Standing near the flame restores your mind.',
     'Every fragment you read is kept forever in the Codex.',
     'Look for doorways that show somewhere else. Walk through them.',
   ];

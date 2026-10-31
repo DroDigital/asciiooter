@@ -349,7 +349,7 @@
   UI.prompt = function (g) {
     if (!g.prompt) return;
     const y = Math.floor(Rw() * 0.64);
-    const s = `[E] ${g.prompt.text}`;
+    const s = `[${In.label('interact')}] ${g.prompt.text}`;
     UI.caption(y, s, g.level.st.ink ? [0.5, 0, 0] : [1, 0.9, 0.6], 0.5, g.level.st.ink);
   };
 

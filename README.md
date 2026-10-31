@@ -60,8 +60,11 @@ runs on a single thread.
 | Map | hold `Tab` |
 | Pause | `Esc` |
 
-Gamepads are supported (left stick move, right stick look, RT fire, A dash, X interact,
-Y lantern, bumpers switch weapons, stick-click switches camera).
+Controllers work throughout. The left stick moves and the right stick looks, RT fires, A dashes, X interacts,
+Y lights or puts out the lantern, and the bumpers switch weapons. B returns to the last weapon, BACK holds the map,
+R3 switches camera, and START pauses or resumes. Menus take the d-pad or the left stick, with A to choose and B to go back.
+While a controller is in use, the seed screen shows a letter grid, and prompts and tips name its buttons.
+Browsers start sound only after a click or key press, so a controller-only player may need to press a key or click once first.
 
 ## What is in it
 
