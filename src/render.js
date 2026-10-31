@@ -20,6 +20,7 @@
   let zbuf, cTop, cBot, cU, cTile, cSide, cPN, cPT, cPOX, cPOY, cRayLen, cRdx, cRdy;
   let rowDist, cellDepth, cellKind;
   const lampLUT = new Float32Array(512), fogLUT = new Float32Array(512);
+  const haloIdx = new Int32Array(8);
   const tmpL = new Float32Array(8);
   const lt = [0, 0, 0];
   R.sprites = [];
@@ -603,6 +604,7 @@
     const lcR = st.lamp[0], lcG = st.lamp[1], lcB = st.lamp[2];
     const dyn = game.dynLights;
     const nd = dyn.length;
+    const haze = st.ink ? 0 : st.haze === undefined ? 1 : st.haze;
     const warp = game.fx.wallWarp;
     const secretVis = L.secretOpen;
     const skyKind = st.sky || 'cosmos';
@@ -750,7 +752,8 @@
           }
           const z = camZ + ((hz - (y + 0.5)) * t) / projY;
           const p = wallPattern(mat, u, z, th, time, lt);
-          let r = wc[0] * p * lt[0] * wlR * sideK, g = wc[1] * p * lt[1] * wlG * sideK, b = wc[2] * p * lt[2] * wlB * sideK;
+          const ao = (z < 0.3 ? 0.6 + 1.33 * z : 1) * (Hc - z < 0.25 ? 0.72 + 1.12 * (Hc - z) : 1);
+          let r = wc[0] * p * lt[0] * wlR * sideK * ao, g = wc[1] * p * lt[1] * wlG * sideK * ao, b = wc[2] * p * lt[2] * wlB * sideK * ao;
           if (patEm) {
             r += wc[0] * lt[0] * patEm;
             g += wc[1] * lt[1] * patEm;
@@ -854,6 +857,16 @@
           m = MAT_CEIL;
         }
         let emR = pe ? ar * pe * 2 : 0, emG = pe ? ag * pe * 2 : 0, emB = pe ? ab * pe * 2 : 0;
+        if (hitTile >= 0 && !pn) {
+          // the floor and ceiling darken where they meet the wall this ray hits
+          const gap = t - rd;
+          if (gap < 1.2) {
+            const ao = 1 - 0.42 * Math.exp(-Math.max(0, gap) * 3.2);
+            ar *= ao;
+            ag *= ao;
+            ab *= ao;
+          }
+        }
         if (isFloor && ti >= 0 && dmask[ti]) {
           const list = dtile[ti];
           for (let q = 0; q < list.length; q++) {
@@ -918,6 +931,42 @@
         if (emR + emG + emB > 0.05) sGl[i] = 0.3;
         sD[i] = rd;
         sM[i] = m;
+      }
+      // ---- light in the air: each nearby light scatters a halo into the haze along this ray
+      if (haze > 0 && nd) {
+        let nc = 0;
+        const rr = rdx * rdx + rdy * rdy;
+        for (let k = 0; k < nd && nc < 6; k++) {
+          const Lg = dyn[k];
+          const dx = Lg.x - px, dy = Lg.y - py;
+          const t2 = (dx * rdx + dy * rdy) / rr;
+          if (t2 < 0.15) continue;
+          const ex = rdx * t2 - dx, ey = rdy * t2 - dy, hr = Math.min(0.8, Math.max(0.25, Lg.rad * 0.14));
+          if (ex * ex + ey * ey > hr * hr * 5) continue;
+          haloIdx[nc++] = k;
+        }
+        for (let q = 0; q < nc; q++) {
+          const Lg = dyn[haloIdx[q]];
+          const dx = Lg.x - px, dy = Lg.y - py, dz = (Lg.z === undefined ? 0.6 : Lg.z) - camZ;
+          const hr2 = Math.min(0.8, Math.max(0.25, Lg.rad * 0.14)) ** 2, I = Math.min(1.2, Lg.i) * haze * 0.2;
+          const lr = Lg.r * I, lg = Lg.g * I, lb = Lg.b * I;
+          for (let y = 0; y < SH; y++) {
+            const i = y * SW + x;
+            const vz = (hz - (y + 0.5)) / projY;
+            let tc = (dx * rdx + dy * rdy + dz * vz) / (rr + vz * vz);
+            const D = sD[i];
+            if (tc > D) tc = D;
+            if (tc < 0) continue;
+            const hx = rdx * tc - dx, hy = rdy * tc - dy, hzz = vz * tc - dz;
+            const h2 = hx * hx + hy * hy + hzz * hzz;
+            if (h2 > hr2 * 5) continue;
+            const g = Math.exp(-h2 / hr2);
+            sR[i] += lr * g;
+            sG[i] += lg * g;
+            sB[i] += lb * g;
+            if (g > 0.5 && sGl[i] < 0.35) sGl[i] = 0.35;
+          }
+        }
       }
     }
     return skyCount;
@@ -1496,6 +1545,8 @@
       o.dieT = e.dieT;
       o.spawnT = e.spawnT;
       o.flash = e.flash > 0 ? Math.min(1, e.flash * 9) : 0;
+      // legible (erasable) creatures flicker white, like a word about to be struck out
+      if (e.legible) o.flash = Math.max(o.flash, 0.18 + 0.22 * Math.max(0, Math.sin(time * 11 + e.id)));
       o.glow = def.glow;
       o.ground = (e.z || 0) < 0.05 && def.kind !== 'pickup';
       o.cel = !!def.cel;

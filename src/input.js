@@ -52,8 +52,13 @@
   In.lock = function () {
     if (In.locked || !In.canvas.requestPointerLock) return;
     try {
-      const p = In.canvas.requestPointerLock();
-      if (p && p.catch) p.catch(() => {});
+      // raw mouse input (no OS acceleration or smoothing) where the browser supports it
+      let p = In.canvas.requestPointerLock({ unadjustedMovement: true });
+      if (p && p.catch)
+        p.catch(() => {
+          const q = In.canvas.requestPointerLock();
+          if (q && q.catch) q.catch(() => {});
+        });
     } catch (e) {
       /* some browsers refuse without a gesture */
     }

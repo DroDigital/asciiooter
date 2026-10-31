@@ -127,6 +127,14 @@ text, and the thing beneath it is erasing it.
   so shadows lift while highlights hold. In dark cells, structural edges (wall/floor seams, depth
   jumps) are drawn as chalk lines, nearby floor shows its tile grid, and a screen-space overlay places
   depth-tested beacons over usable things and edge markers toward unseen hunters.
+- **Volumetrics:** per column, lights whose 2D closest approach is near the ray are kept (up to six);
+  per sample, the 3D closest approach of the view ray (clamped to the surface depth) gives a Gaussian
+  halo. God rays are a 14-tap radial blur of bright cells toward up to two sources chosen on the CPU
+  (visible, unoccluded, scored by intensity and distance) and faded between frames.
+- **Feel:** a perfect dodge (hit during the first 0.26 s of a dash) slows the world to about a quarter
+  speed for a second. Erasures, fervor chains, damage numbers, input buffering (dash 0.16 s, fire 0.15 s)
+  and raw pointer-lock input make the moment-to-moment combat sharper. The held weapon tilts with
+  strafing, lags pitch, breathes when still, and thrusts through erasures.
 - **Dimension effects:** a 4D tesseract sky (vertices rotated in four planes and projected once per sky
   refresh), aurora and iris skies, mirror floors in the reflection pass, a heartbeat that drives the
   Eye's breathing walls, and eyelids that close over the screen when the Oculus blinks.
