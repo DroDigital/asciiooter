@@ -152,7 +152,7 @@
   });
 
   def('watcher', {
-    kind: 'enemy', hp: 95, speed: 3.5, r: 0.32, h: 2.1, w: 0.95, col: hex('#9c9a8f'), emit: hex('#ff2a2a'), set: 'sigilB', ink: 6, glow: 1.2, crawl: false,
+    kind: 'enemy', stealth: true, hp: 95, speed: 3.5, r: 0.32, h: 2.1, w: 0.95, col: hex('#9c9a8f'), emit: hex('#ff2a2a'), set: 'sigilB', ink: 6, glow: 1.2, crawl: false,
     update(e, g, dt) {
       if (!wake(e, g)) return;
       const P = g.player, d = g.distP(e);
@@ -178,7 +178,7 @@
   });
 
   def('hollow', {
-    kind: 'enemy', hp: 55, speed: 2.9, r: 0.3, h: 1.15, w: 0.85, col: hex('#cfe6ff'), emit: hex('#bfe0ff'), set: 'sigilB', ink: 4, glow: 1.4, minLight: 0.5,
+    kind: 'enemy', stealth: true, hp: 55, speed: 2.9, r: 0.3, h: 1.15, w: 0.85, col: hex('#cfe6ff'), emit: hex('#bfe0ff'), set: 'sigilB', ink: 4, glow: 1.4, minLight: 0.5,
     update(e, g, dt) {
       const P = g.player, d = g.distP(e);
       const lit = (P.lanternOn && d < P.lampRadius() * 0.95) || g.lightAt(e.x, e.y) > 0.35;
@@ -320,7 +320,7 @@
   });
 
   def('lurker', {
-    kind: 'enemy', hp: 52, speed: 4.3, r: 0.35, h: 0.85, w: 1.7, col: hex('#a79bb8'), emit: hex('#ffef5a'), set: 'sigilB', ink: 5, glow: 1,
+    kind: 'enemy', stealth: true, hp: 52, speed: 4.3, r: 0.35, h: 0.85, w: 1.7, col: hex('#a79bb8'), emit: hex('#ffef5a'), set: 'sigilB', ink: 5, glow: 1,
     visible(e, s) {
       return abs(s.camX) > 0.48;
     },

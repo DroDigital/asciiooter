@@ -723,7 +723,36 @@
     if (game.level.st.water > 0) waterPass(game.time);
     renderSprites(game);
     R.renderViewmodel(game);
+    exposurePass(game.level.st.ink);
   };
+
+  // ---- dark sight ----
+  // The eye adapts: the game sets R.exposure from the scene's measured brightness. Shadows are
+  // lifted by up to that factor while highlights keep their value (c*k / (1 + (k-1)*c)), so a
+  // dark corridor opens up without the lit parts washing out. R.rawLum reports the scene's
+  // brightness before adaptation, for the next frame.
+  R.exposure = 1;
+  R.rawLum = 0.2;
+  R.guide = 0;
+  function exposurePass(ink) {
+    const n = SW * SH;
+    let acc = 0, cnt = 0;
+    for (let i = 0; i < n; i += 7) {
+      if (sM[i] === MAT_SKY) continue;
+      acc += 0.3 * sR[i] + 0.59 * sG[i] + 0.11 * sB[i];
+      cnt++;
+    }
+    R.rawLum = cnt ? acc / cnt : 0.2;
+    const k = R.exposure;
+    if (ink || k < 1.01) return;
+    const km = k - 1;
+    for (let i = 0; i < n; i++) {
+      const r = sR[i], g = sG[i], b = sB[i];
+      sR[i] = r > 0 ? (r * k) / (1 + km * r) : r;
+      sG[i] = g > 0 ? (g * k) / (1 + km * g) : g;
+      sB[i] = b > 0 ? (b * k) / (1 + km * b) : b;
+    }
+  }
 
   // ---- models ----
   // Each model is rasterized in two passes: first its distance field over the sprite's screen
@@ -1379,6 +1408,34 @@
     }
     put(DSP, ci, g, fr * 1.3, fg * 1.3, fb * 1.3, fr * 0.42, fg * 0.42, fb * 0.42, gl);
   }
+  // Which of a cell's 2x4 samples lie on a structural edge: where a wall meets the floor or
+  // ceiling, or where a wall's depth jumps between neighbouring columns (a corner or doorway).
+  function contourMask(cx, cy) {
+    let mask = 0;
+    const y0 = cy * 4;
+    for (let j = 0; j < 2; j++) {
+      const x = cx * 2 + j;
+      if (cTile[x] < 0 && zbuf[x] > 40) continue;
+      const top = cTop[x], bot = cBot[x];
+      const rb = Math.floor(bot) - y0;
+      if (rb >= 0 && rb < 4) mask |= 1 << (rb * 2 + j);
+      const rt = Math.floor(top) - y0;
+      if (rt >= 0 && rt < 4) mask |= 1 << (rt * 2 + j);
+      if (x > 0) {
+        const za = zbuf[x], zb = zbuf[x - 1];
+        if (Math.abs(za - zb) > 0.18 * Math.min(za, zb) + 0.05) {
+          // the nearer of the two columns carries the edge
+          const tt = za < zb ? top : cTop[x - 1], bb = za < zb ? bot : cBot[x - 1];
+          for (let r = 0; r < 4; r++) {
+            const y = y0 + r + 0.5;
+            if (y > tt && y < bb) mask |= 1 << (r * 2 + j);
+          }
+        }
+      }
+    }
+    return mask;
+  }
+
   R.toCells = function (game, DSP) {
     const L = game.level, st = L.st, sets = G.Glyphs.sets, cam = R.cam, P = game.player;
     const time = game.time;
@@ -1392,6 +1449,9 @@
     const mixed = st.wallSet === 'mixed';
     const W = L.w;
     const cx0 = X0 >> 1, cx1 = X1 >> 1;
+    // contour colour: the stratum's accent, pale enough to read as chalk
+    const guide = ink || !P ? 0 : R.guide, gset = sets.ascii;
+    const gR = 0.35 + st.accent[0] * 0.45, gG = 0.33 + st.accent[1] * 0.45, gB = 0.36 + st.accent[2] * 0.45;
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = cx0; cx < cx1; cx++) {
         const ci = cy * cols + cx;
@@ -1502,6 +1562,33 @@
         sg *= 0.125;
         sb *= 0.125;
         const avgL = 0.3 * sr + 0.59 * sg + 0.11 * sb;
+        // ---------- dark sight: where light fails, the outline of the world is still written ----------
+        if (guide > 0 && maxL < 0.11 && dmin < 15) {
+          const cm = contourMask(cx, cy);
+          if (!cm && flN >= 4) {
+            // nearby floor: a chalk grid of tile edges, so walkable space reads in the dark
+            const x = cx * 2 + 1, y = cy * 4 + 2;
+            const rd = rowDist[y];
+            if (y > cam.hz && rd < 7 && !(cPN[x] && rd > cPT[x * K])) {
+              const wx = cam.x + cRdx[x] * rd, wy = cam.y + cRdy[x] * rd;
+              const ex = Math.abs(wx - Math.round(wx)), ey = Math.abs(wy - Math.round(wy));
+              const thr = 0.025 + rd * 0.011;
+              if (ex < thr || ey < thr) {
+                const k = guide * 0.55 * (1 - rd / 7);
+                const cross = ex < thr && ey < thr;
+                put(DSP, ci, G.Glyphs.ch(cross ? '+' : '.'), gR * k + sr, gG * k + sg, gB * k + sb, sr * 0.5, sg * 0.5, sb * 0.5, 0);
+                continue;
+              }
+            }
+          }
+          if (cm) {
+            const k = guide * Math.exp(-dmin * 0.085) * (0.85 + 0.15 * Math.sin(time * 2.1 - dmin * 0.7));
+            if (k > 0.03) {
+              put(DSP, ci, gset.lut[cm] || gset.lut[255], gR * k + sr, gG * k + sg, gB * k + sb, sr * 0.5, sg * 0.5, sb * 0.5, k * 0.25);
+              continue;
+            }
+          }
+        }
         // ---------- darkness: the absence of text ----------
         if (!ink && maxL < 0.018) {
           put(DSP, ci, 0, 0, 0, 0, sr * 0.5, sg * 0.5, sb * 0.5, 0);

@@ -5,7 +5,7 @@
   const G = window.G;
   const D = G.Data, In = G.Input, A = G.Audio, R = G.R, UI = G.UI, E = G.Ent, GL = G.Glyphs;
   const SAVE_KEY = 'asciiooter.save.v1';
-  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false, threads: true, res: 'auto', sharp: 1.5 };
+  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false, threads: true, res: 'auto', sharp: 1.5, bright: 1.11, guide: true };
   const lt = [0, 0, 0];
 
   function defaultSave() {
@@ -849,7 +849,9 @@
     d.curve = o.crt ? 0.035 : 0;
     d.noise = o.crt ? 0.022 : 0.006;
     const lowHp = playing && this.player.hp / this.player.maxHp < 0.3;
-    d.vig = 0.5 + (lowHp ? 0.35 + 0.15 * Math.sin(this.time * 6) : 0);
+    // the vignette eases off in the dark, where the edges of the screen are all you have
+    d.vig = (0.5 + (lowHp ? 0.35 + 0.15 * Math.sin(this.time * 6) : 0)) * (1 - 0.4 * (playing ? this.dark || 0 : 0));
+    d.bright = o.bright;
     d.glow = 1;
     const wv = d.waves;
     wv.fill(0);
@@ -1319,8 +1321,22 @@
   };
 
   // ------------------------------------------------------------------ rendering
-  Game.renderPlay = function () {
+  // Dark sight. The eye adapts to the scene's measured brightness (slowly into the dark,
+  // quickly back to light), and as the scene darkens the renderer writes the outline of walls,
+  // beacons mark what can be used, and edge markers point at threats you cannot see.
+  Game.adaptEyes = function (dt) {
+    const lum = R.rawLum, o = this.opts;
+    const target = this.level.st.ink ? 1 : G.clamp(0.13 / Math.max(0.012, lum), 1, 2.8);
+    const rate = target > R.exposure ? 1.8 : 5;
+    R.exposure += (target - R.exposure) * (1 - Math.exp(-rate * dt));
+    const dark = this.level.st.ink ? 0 : G.clamp((0.11 - lum) / 0.08, 0, 1);
+    this.dark = (this.dark || 0) + (dark - (this.dark || 0)) * (1 - Math.exp(-2.5 * dt));
+    R.guide = o.guide ? 0.12 + this.dark * 0.45 : 0;
+  };
+
+  Game.renderPlay = function (dt) {
     const P = this.player, dsp = this.dsp;
+    this.adaptEyes(Math.min(0.1, dt || 1 / 60));
     if (this.state !== 'play') this.computeCamera();
     const fov = this.opts.fov * P.mods.fov + this.fx.fovKick;
     R.setupCamera(this.cam, fov, dsp.cellW, dsp.cellH);
@@ -1355,6 +1371,7 @@
     R.drawParticles(this, dsp);
     R.drawLines(this, dsp);
     R.drawVoids(this, dsp);
+    if (this.opts.guide && this.state !== 'descend') UI.beacons(this);
     this.dynLights = [];
     UI.whispers(this);
     UI.bars(this);
@@ -1665,6 +1682,8 @@
           o.sharp = v[G.clamp(v.indexOf(o.sharp) + d, 0, v.length - 1)];
           this.resize();
         }],
+        ['BRIGHTNESS', () => `${Math.round(o.bright * 100)}%`, (d) => (o.bright = Math.round(G.clamp(o.bright + d * 0.05, 0.8, 1.6) * 100) / 100)],
+        ['DARK SIGHT (OUTLINES, BEACONS)', () => (o.guide ? 'ON' : 'OFF'), () => (o.guide = !o.guide)],
         ['SHOW FRAME RATE', () => (o.fps ? 'ON' : 'OFF'), () => (o.fps = !o.fps)],
         ['BACK', () => '', null],
       ];
