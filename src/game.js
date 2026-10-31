@@ -5,7 +5,7 @@
   const G = window.G;
   const D = G.Data, In = G.Input, A = G.Audio, R = G.R, UI = G.UI, E = G.Ent, GL = G.Glyphs;
   const SAVE_KEY = 'asciiooter.save.v1';
-  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false };
+  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false, threads: true, res: 'auto', sharp: 1.5 };
   const lt = [0, 0, 0];
 
   function defaultSave() {
@@ -35,6 +35,7 @@
     this.opts = Object.assign({}, DEFAULT_OPTS, this.save.opts || {});
     this.thirdPerson = this.opts.third;
     this.applyOpts();
+    if (this.opts.threads) G.MT.start();
     this.resize();
     window.addEventListener('resize', () => this.resize());
     if (G.debug && G.params.has('floor')) {
@@ -45,8 +46,14 @@
       if (G.params.has('luc')) this.player.luc = parseFloat(G.params.get('luc'));
     }
   };
+  // Cells per frame the CPU is trusted with: more with render threads, unlimited at FULL.
+  Game.cellBudget = function () {
+    if (this.opts.res === 'full') return Infinity;
+    const t = G.MT.threads;
+    return t ? Math.round(13000 * Math.min(2.6, 1 + 0.55 * t)) : 13000;
+  };
   Game.resize = function () {
-    const g = this.dsp.setup(this.opts.glyph);
+    const g = this.dsp.setup(this.opts.glyph, this.cellBudget(), this.opts.sharp);
     R.alloc(g.cols, g.rows);
   };
   Game.applyOpts = function () {
@@ -787,6 +794,10 @@
 
   // ------------------------------------------------------------------ the frame
   Game.step = function (dt) {
+    if (G.MT.changed) {
+      G.MT.changed = false;
+      this.resize();
+    }
     In.pollPad();
     this.time += dt;
     this.frame++;
@@ -1415,7 +1426,8 @@
         { label: 'OPTIONS' },
         { label: 'HOW TO PLAY' },
       ];
-      const y0 = Math.floor(rows * 0.36);
+      if (G.desktop) items.push({ label: 'QUIT TO DESKTOP' });
+      const y0 = Math.floor(rows * 0.33);
       const c = UI.menu(items, this.st, 0, y0, { center: true, width: 40, gap: 2, accent: ACC });
       UI.textC(rows - 4, `RUNS ${S.stats.runs}   DEATHS ${S.stats.deaths}   VICTORIES ${S.stats.wins}   DEEPEST ${S.stats.best}   SLAIN ${S.stats.kills}`, DIM);
       UI.textC(rows - 2, D.TIPS[Math.floor(this.time / 6) % D.TIPS.length], [0.45, 0.43, 0.5]);
@@ -1436,6 +1448,10 @@
         this.state = 'options';
         this.st = { sel: 0 };
       } else if (c === 6) this.state = 'howto';
+      else if (c === 7) {
+        this.persist();
+        window.close();
+      }
       if (In.back()) this.state = 'title';
     },
     readers() {
@@ -1633,6 +1649,22 @@
         ['CRT GLASS', () => (o.crt ? 'ON' : 'OFF'), () => (o.crt = !o.crt)],
         ['INVERT LOOK', () => (o.invertY ? 'ON' : 'OFF'), () => (o.invertY = !o.invertY)],
         ['START IN THIRD PERSON', () => (o.third ? 'ON' : 'OFF'), () => (o.third = !o.third)],
+        ['RENDER THREADS', () => (!G.MT.supported() ? 'UNAVAILABLE (ONE THREAD)' : o.threads ? `ON (${G.MT.threads + 1})` : 'OFF'), () => {
+          if (!G.MT.supported()) return;
+          o.threads = !o.threads;
+          if (o.threads) G.MT.start();
+          else G.MT.stop();
+          this.resize();
+        }],
+        ['RESOLUTION', () => (o.res === 'full' ? 'FULL (SLOWEST)' : 'AUTO (FITS YOUR CPU)'), () => {
+          o.res = o.res === 'full' ? 'auto' : 'full';
+          this.resize();
+        }],
+        ['SHARPNESS', () => (o.sharp >= 2 ? 'HIGH-DPI' : o.sharp > 1 ? 'BALANCED' : 'FAST'), (d) => {
+          const v = [1, 1.5, 2];
+          o.sharp = v[G.clamp(v.indexOf(o.sharp) + d, 0, v.length - 1)];
+          this.resize();
+        }],
         ['SHOW FRAME RATE', () => (o.fps ? 'ON' : 'OFF'), () => (o.fps = !o.fps)],
         ['BACK', () => '', null],
       ];

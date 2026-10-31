@@ -12,14 +12,38 @@ toward the Lacuna: the hole in the text beneath the world.
 
 ## Play
 
-Open `index.html` in any current desktop browser with WebGL2 (Chrome, Edge, Firefox, Safari).
-Nothing needs to be built or installed. To serve it instead:
+### Desktop app (fastest)
+
+The desktop app renders every frame on all of your CPU cores. You need [Node.js](https://nodejs.org) 20 or later.
 
 ```bash
-python3 -m http.server 8000
+npm install
 ```
 
-Then visit <http://localhost:8000>.
+```bash
+npm start
+```
+
+F11 or Alt+Enter toggles fullscreen. Start it with `npm start -- --fullscreen` to open fullscreen.
+
+To build an installer for your own system, run `npm run dist`. It writes a Windows installer and a portable
+`.exe`, a macOS `.dmg`, or a Linux AppImage to `dist/`. The **Desktop builds** GitHub Actions workflow builds
+all three; run it from the Actions tab or push a `v*` tag, then download the installers from the run's
+artifacts. The builds are unsigned, so Windows SmartScreen and macOS Gatekeeper ask you to confirm the first launch.
+
+### Browser
+
+Serve the folder with the bundled server. It sends the two headers browsers require before they allow shared
+memory, so the browser version can use every core too:
+
+```bash
+node serve.js
+```
+
+Then visit <http://localhost:8000> in a current desktop browser with WebGL2 (Chrome, Edge, Firefox, Safari).
+
+Opening `index.html` directly, or serving it with any other static server, also works, but rendering then
+runs on a single thread.
 
 | Action | Keys |
 | --- | --- |
@@ -96,6 +120,9 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
   - Seeds are phrases (`"ASHEN CHOIR WAITS"`). Speak one to replay a run, or play the same Daily Rite as everyone else.
 - **Accessibility:** a reduce-flashing option, a madness-distortion slider, CRT effects can be
   turned off, glyph size settings (bigger glyphs render faster), FOV and invert look.
+- **Performance options:** render threads, automatic resolution (glyphs grow until the grid fits what your
+  CPU can draw at full frame rate; FULL turns this off), and sharpness (the pixel density cap on
+  high-DPI screens). `SHOW FRAME RATE` displays the frame cost.
 
 ## How it renders
 
@@ -133,7 +160,15 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
    with bloom sampled from the foreground grid, CRT curvature, scanlines, chromatic aberration,
    shockwave distortion, dash speed-blur and colour grading that drains as you weaken.
 
-Typical frame cost is a few milliseconds of JavaScript, depending on glyph size.
+7. **Multithreaded.** When shared memory is available (the desktop app, or `serve.js`), the raycast is
+   split into vertical strips. Worker threads and the main thread claim strips from one atomic counter
+   and write straight into shared sample buffers, so a thread that is busy or late just takes fewer
+   strips and a frame never waits on it. Workers keep a mirror of the level: tiles, the lightmap and wall
+   damage live in shared memory, and stains are re-sent when they change. The main thread then draws
+   creatures, water reflections, glyphs and effects over the finished world. Output is bit-identical to
+   the single-threaded renderer.
+
+On a 4-core machine at 1920x1080, a threaded frame costs 30–50% less than a single-threaded one.
 
 ## Code map
 
@@ -143,6 +178,8 @@ Typical frame cost is a few milliseconds of JavaScript, depending on glyph size.
 | `src/glyphs.js` | glyph registry, procedural atlas, coverage measurement, style sets and their shape tables |
 | `src/display.js` | WebGL2 cell-grid compositor and post effects |
 | `src/render.js` | raycaster, sky, reflections, stains, lit model rasterizer, sample-to-glyph conversion, particles and lines |
+| `src/mt.js` | render thread pool: strip scheduling over shared memory, keeping the workers' level in sync |
+| `src/render-worker.js` | a render thread: raycasts claimed strips into the shared sample buffers |
 | `src/level.js` | level structure, portals, collision, lighting, flow fields, procedural generation |
 | `src/entities.js` | creature behaviours, bosses, pickups, props |
 | `src/models.js` | distance-field models, materials, lights and small effects for everything, plus the held weapons |
@@ -154,9 +191,14 @@ Typical frame cost is a few milliseconds of JavaScript, depending on glyph size.
 | `src/audio.js` | procedural sound effects and adaptive ambience |
 | `src/data.js` | strata, weapons, relics, readers, lore |
 
+| `desktop/main.js` | the Electron desktop app: a private `app://` origin with cross-origin isolation, GPU and throttling switches, fullscreen |
+| `serve.js` | a dependency-free local server with the cross-origin isolation headers |
+
 Design notes are in [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Debug URL parameters
 
 `index.html?debug&floor=6` starts directly on a floor (0–9). `&third` starts in third person,
 `&luc=20` sets lucidity, `&god` disables damage and `&reader=heretic` picks a Reader.
+`&threads=2` sets the number of render worker threads (0 turns them off). In the desktop app,
+`npm start -- --game-debug` adds `?debug`, and `--devtools` lets F12 open the developer tools.

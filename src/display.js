@@ -147,12 +147,19 @@ void main(){
     }
 
     // Choose a grid for the window. cellH is CSS pixels per text row.
-    setup(cellH) {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // cellH is the preferred glyph height; glyphs grow until the grid fits maxCells.
+    setup(cellH, maxCells, dprCap) {
+      const dpr = Math.min(window.devicePixelRatio || 1, dprCap || 2);
+      const W = window.innerWidth, H = window.innerHeight, cap = maxCells || Infinity;
+      // grow glyphs rather than leave black borders past the grid limit, or exceed the cell budget
+      for (; cellH < 40; cellH++) {
+        const c = W / Math.round(cellH * 0.56), r = H / cellH;
+        if (c <= 300 && r <= 110 && c * r <= cap) break;
+      }
       const cellW = Math.max(4, Math.round(cellH * 0.56));
       const gw = Math.max(4, Math.round(cellW * dpr)), gh = Math.max(7, Math.round(cellH * dpr));
-      const cols = G.clamp(Math.floor(window.innerWidth / cellW), 60, 300);
-      const rows = G.clamp(Math.floor(window.innerHeight / cellH), 30, 110);
+      const cols = G.clamp(Math.floor(W / cellW), 60, 300);
+      const rows = G.clamp(Math.floor(H / cellH), 30, 110);
       this.dpr = dpr;
       this.cellW = cellW;
       this.cellH = cellH;
@@ -172,16 +179,20 @@ void main(){
       if (cols !== this.cols || rows !== this.rows) {
         this.cols = cols;
         this.rows = rows;
-        this.glyph = new Uint16Array(cols * rows);
-        this.fg = new Uint8Array(cols * rows * 4);
-        this.bg = new Uint8Array(cols * rows * 4);
+        this.glyph = G.shared(Uint16Array, cols * rows);
+        this.fg = G.shared(Uint8Array, cols * rows * 4);
+        this.bg = G.shared(Uint8Array, cols * rows * 4);
+        // WebGL may refuse views of shared memory; keep private copies to upload from if so.
+        this.upGlyph = new Uint16Array(cols * rows);
+        this.upFg = new Uint8Array(cols * rows * 4);
+        this.upBg = new Uint8Array(cols * rows * 4);
         const gl = this.gl;
         gl.bindTexture(gl.TEXTURE_2D, this.tGlyph);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, cols, rows, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, this.glyph);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, cols, rows, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, this.upGlyph);
         gl.bindTexture(gl.TEXTURE_2D, this.tFg);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, cols, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.fg);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, cols, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.upFg);
         gl.bindTexture(gl.TEXTURE_2D, this.tBg);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, cols, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.bg);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, cols, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.upBg);
       }
       return { cols, rows };
     }
@@ -198,19 +209,25 @@ void main(){
       return { x: Math.floor(((clientX - r.left) / r.width) * this.cols), y: Math.floor(((clientY - r.top) / r.height) * this.rows) };
     }
 
+    upload(view, copy) {
+      if (!G.SAB) return view;
+      copy.set(view);
+      return copy;
+    }
+
     present(time) {
       const gl = this.gl, f = this.fx, u = this.u, a = G.Glyphs.atlas;
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
       gl.useProgram(this.prog);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.tGlyph);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.cols, this.rows, gl.RED_INTEGER, gl.UNSIGNED_SHORT, this.glyph);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.cols, this.rows, gl.RED_INTEGER, gl.UNSIGNED_SHORT, this.upload(this.glyph, this.upGlyph));
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, this.tFg);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.cols, this.rows, gl.RGBA, gl.UNSIGNED_BYTE, this.fg);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.cols, this.rows, gl.RGBA, gl.UNSIGNED_BYTE, this.upload(this.fg, this.upFg));
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, this.tBg);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.cols, this.rows, gl.RGBA, gl.UNSIGNED_BYTE, this.bg);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.cols, this.rows, gl.RGBA, gl.UNSIGNED_BYTE, this.upload(this.bg, this.upBg));
       gl.activeTexture(gl.TEXTURE3);
       gl.bindTexture(gl.TEXTURE_2D, this.tAtlas);
       gl.uniform1i(u.uGlyph, 0);
