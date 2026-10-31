@@ -44,7 +44,7 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
   Letters (fine ASCII bone walls), the Choir Vault (box-drawing cathedrals open to a sky where
   a colossal eye turns), and the Lacuna (ink on white paper, every wall in a different
   alphabet). At the bottom of the Ossuary waits the Redactor; at the bottom of everything, the Unwritten.
-- **Creatures with rules you learn**, each drawn in its own alphabet:
+- **21 creatures with rules you learn**, cel-shaded and drawn in their own alphabets:
   - *Watchers* move only when unseen.
   - *Hollows* are visible only in darkness.
   - *Lurkers* exist only in the corner of your eye.
@@ -54,6 +54,23 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
   - *Maws* stun themselves charging into walls.
   - *Lamp-moths* hunt your lantern.
   - *Phantasms* are hallucinations.
+  - *Tome swarms* flock like birds and bite.
+  - *Scriveners* write glowing mines on the floor and blink away.
+  - *The Hanged* wait overhead and drop when you pass beneath.
+  - *Tendril Blooms* are rooted: they whip whatever is close and lob spores that rot the mind.
+  - *Broodsacs* spill exploding *mites* with every wound.
+  - *Margin Hounds* hunt in packs, circle, and pounce.
+  - *Bell-ringers* toll shockwave rings you must dash through, and hasten their allies.
+  - *Ciphers* hide behind a rotating shield and sweep an aimed beam.
+  - *Mirror Knights* reflect shots from the front and charge with a lance.
+  - *Candlewick Wraiths* dive through you leaving fire, and burst into flame when they die.
+  - *Ink Golems* shed their book-plate armour as they're hurt, slam the floor, and throw torn-off debris.
+- **Physics and destruction.**
+  - Particles collide with walls, floors and ceilings, bounce, tumble and come to rest.
+  - Explosions shove everything: particles, props, oil casks, and creatures, which fly through the air and land.
+  - Walls have hit points. They crack as you damage them, then collapse into physical rubble and open new routes.
+  - Loose props can be kicked and shot apart. Oil casks explode in chain reactions and leave burning ground.
+  - Creatures burst into hundreds of physical fragments sampled from their own 3D model, in their own letters.
 - **Six weapons:**
   - **Quill:** infinite sidearm.
   - **Psalter:** scattergun.
@@ -91,8 +108,11 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
      coarse grid and interpolation. The second derives surface normals from the field's gradient and
      shades with diffuse, specular, subsurface and rim lighting, coloured by every nearby light.
    - Creatures walk and turn to face where they move: eyes vanish when they turn away.
-   - They telegraph attacks, recoil when hit, dissolve into embers and their own letters when
-     they die, and fade in when summoned.
+   - They telegraph attacks, recoil when hit, burst apart into physical fragments when they die,
+     and fade in when summoned.
+   - **Creatures are cel-shaded:** three hard bands of light, a hard highlight and a hard rim,
+     with ink outlines at silhouettes and material boundaries. Outlines are drawn as shape-matched
+     line glyphs (`/`, `|`, `_`), so they read as comic ink strokes made of ASCII.
    - Things on the ground cast soft contact shadows. Glowing eyes, mouths and wounds light the walls around them.
    - The weapon in your hands is a shaded model too. It bobs, sways with your aim, kicks with recoil,
      lowers when you switch, and flashes at the muzzle.
@@ -126,6 +146,8 @@ Typical frame cost is a few milliseconds of JavaScript, depending on glyph size.
 | `src/level.js` | level structure, portals, collision, lighting, flow fields, procedural generation |
 | `src/entities.js` | creature behaviours, bosses, pickups, props |
 | `src/models.js` | distance-field models, materials, lights and small effects for everything, plus the held weapons |
+| `src/bestiary.js` | the twelve newer creatures (models and movesets), mines, thrown debris, spores and oil casks |
+| `src/physics.js` | colliding particles, impulses, creatures shattering into fragments, destructible walls, pushable bodies, hazards and shockwaves |
 | `src/player.js` | movement, dash, lantern, lucidity, weapons |
 | `src/game.js` | runs, combat, effects, director, screens, saving |
 | `src/ui.js` | HUD, menus, big text, map, overlays |

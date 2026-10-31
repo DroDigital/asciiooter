@@ -14,7 +14,7 @@
   R.MAT = { MAT_CEIL, MAT_FLOOR, MAT_WALL, MAT_ENT, MAT_WATER, MAT_SKY };
 
   let cols = 0, rows = 0, SW = 0, SH = 0;
-  let sR, sG, sB, sD, sM, sE, sGl;
+  let sR, sG, sB, sD, sM, sE, sGl, sF;
   let zbuf, cTop, cBot, cU, cTile, cSide, cPN, cPT, cPOX, cPOY, cRayLen, cRdx, cRdy;
   let rowDist, cellDepth, cellKind;
   const lampLUT = new Float32Array(512), fogLUT = new Float32Array(512);
@@ -37,6 +37,7 @@
     sM = new Uint8Array(n);
     sE = new Int16Array(n);
     sGl = new Float32Array(n);
+    sF = new Uint8Array(n);
     zbuf = new Float32Array(SW);
     cTop = new Float32Array(SW);
     cBot = new Float32Array(SW);
@@ -307,6 +308,35 @@
     return glow;
   }
 
+  // The sky changes slowly: cache it as a panorama, recomputed lazily at a few frames per second.
+  const SKW = 1024, SKH = 320;
+  const skyC = new Float32Array(SKW * SKH * 4), skyStamp = new Int32Array(SKW * SKH);
+  let skyEpoch = 1, skyKey = '';
+  function skySample(kind, az, el, time, boss) {
+    const key = kind + boss;
+    const ep = Math.floor(time * 5) + 1;
+    if (key !== skyKey) {
+      skyKey = key;
+      skyStamp.fill(0);
+    }
+    skyEpoch = ep;
+    let ia = Math.floor(((az / G.TAU) % 1 + 1) % 1 * SKW), ie = Math.floor(G.clamp(el, 0, 1.59) * 200);
+    if (ia >= SKW) ia = SKW - 1;
+    const j = ie * SKW + ia;
+    if (skyStamp[j] !== skyEpoch) {
+      skyStamp[j] = skyEpoch;
+      const g = skyColor(kind, ((ia + 0.5) / SKW) * G.TAU, (ie + 0.5) / 200, time, lt, boss);
+      skyC[j * 4] = lt[0];
+      skyC[j * 4 + 1] = lt[1];
+      skyC[j * 4 + 2] = lt[2];
+      skyC[j * 4 + 3] = g;
+    }
+    lt[0] = skyC[j * 4];
+    lt[1] = skyC[j * 4 + 1];
+    lt[2] = skyC[j * 4 + 2];
+    return skyC[j * 4 + 3];
+  }
+
   // ---- main world render into the sample buffer ----
   R.renderWorld = function (game) {
     const L = game.level, st = L.st, P = game.player, cam = R.cam;
@@ -336,6 +366,15 @@
     const pfloor = st.floorPat, pceil = st.ceilPat;
     const fcol = st.floor, ccol = st.ceil;
     const dmask = L.dmask, dtile = L.dtile;
+    if (!L.lmask || L.lmask.length !== W * H) L.lmask = new Uint16Array(W * H);
+    const lmask = L.lmask;
+    lmask.fill(0);
+    for (let k = 0; k < nd && k < 16; k++) {
+      const Lg = dyn[k];
+      const x0 = Math.max(0, Math.floor(Lg.x - Lg.rad)), x1 = Math.min(W - 1, Math.floor(Lg.x + Lg.rad));
+      const y0 = Math.max(0, Math.floor(Lg.y - Lg.rad)), y1 = Math.min(H - 1, Math.floor(Lg.y + Lg.rad));
+      for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) lmask[ty * W + tx] |= 1 << k;
+    }
 
     // per-row distances
     for (let y = 0; y < SH; y++) {
@@ -447,6 +486,7 @@
       const wc = (mat && st.wall[mat]) || st.wall[st.mats[0]] || [0.5, 0.5, 0.5];
       const th = hitTile >= 0 ? hitTile & 1023 : 0;
       const secret = hitTile >= 0 && flags[hitTile] & F.SECRET;
+      const crack = hitTile >= 0 && L.wmax && isFinite(L.wmax[hitTile]) ? 1 - L.whp[hitTile] / L.wmax[hitTile] : 0;
       const yTop = Math.max(0, Math.floor(top)), yBot = Math.min(SH, Math.ceil(bot));
       let lastLm = -9, lmR = 0, lmG = 0, lmB = 0;
 
@@ -454,6 +494,7 @@
         const i = y * SW + x;
         sGl[i] = 0;
         sE[i] = -1;
+        sF[i] = 0;
         if (y >= yTop && y < yBot && y + 0.5 >= top && y + 0.5 < bot) {
           // ---- wall ----
           if (hitTile < 0) {
@@ -467,6 +508,18 @@
           const z = camZ + ((hz - (y + 0.5)) * t) / projY;
           const p = wallPattern(mat, u, z, th, time, lt);
           let r = wc[0] * p * lt[0] * wlR * sideK, g = wc[1] * p * lt[1] * wlG * sideK, b = wc[2] * p * lt[2] * wlB * sideK;
+          if (crack > 0.04) {
+            const cv = Math.abs(Math.sin(u * 23 + th + Math.sin(z * 9 + th) * 2) + Math.sin(z * 17 + u * 11 + th * 0.7));
+            if (cv < crack * 0.45) {
+              r *= 0.12;
+              g *= 0.1;
+              b *= 0.1;
+            } else if (cv < crack * 0.6) {
+              r *= 0.6;
+              g *= 0.55;
+              b *= 0.55;
+            }
+          }
           if (dmask[hitTile]) {
             const list = dtile[hitTile];
             for (let q = 0; q < list.length; q++) {
@@ -518,7 +571,7 @@
         if (!isFloor && fl & F.SKY) {
           const az = Math.atan2(rdy, rdx);
           const el = (hz - (y + 0.5)) / (SH * 0.5);
-          sGl[i] = skyColor(skyKind, az, el, time, lt, bossSky);
+          sGl[i] = skySample(skyKind, az, el, time, bossSky);
           sR[i] = lt[0];
           sG[i] = lt[1];
           sB[i] = lt[2];
@@ -593,8 +646,11 @@
         lr += lp * lcR;
         lg += lp * lcG;
         lb += lp * lcB;
-        for (let k = 0; k < nd; k++) {
-          const Lg = dyn[k];
+        let lm = ti >= 0 ? lmask[ti] : 0;
+        while (lm) {
+          const bit = lm & -lm;
+          lm ^= bit;
+          const Lg = dyn[31 - Math.clz32(bit)];
           const ex = wx - Lg.x, ey = wy - Lg.y;
           const d2 = ex * ex + ey * ey, r2 = Lg.rad * Lg.rad;
           if (d2 < r2) {
@@ -802,6 +858,11 @@
     const ember = o.ember || [1, 0.5, 0.2];
     const ix = 1 / (2 * o.sxw), iy = 1 / (2 * o.syw);
     let any = false;
+    const cel = o.cel;
+    let Iref = (amb[0] + amb[1] + amb[2]) / 3;
+    for (let q = 0; q < nl; q++) Iref += (LTS[q].r + LTS[q].g + LTS[q].b) / 3;
+    Iref = Math.max(0.12, Iref);
+    const ow = 1.4 * Math.max(o.sxw, o.syw);
     for (let sy = Math.max(0, y0); sy <= Math.min(SH - 1, y1); sy++) {
       const yy = sy - y0 + 1;
       for (let sx = Math.max(0, x0); sx <= Math.min(SW - 1, x1); sx++) {
@@ -878,9 +939,34 @@
               }
             }
             const rimK = (1 - nz) * (1 - nz);
-            r = cr * lr + spr + rim[0] * rimK;
-            g = cg * lg + spg + rim[1] * rimK;
-            b = cb * lb + spb + rim[2] * rimK;
+            if (cel) {
+              // cel shading: three hard bands of light, a hard highlight and a hard rim
+              const I = (lr + lg + lb) / 3 + 1e-4;
+              const sI = I / Iref;
+              const band = sI < 0.32 ? 0 : sI < 0.68 ? 1 : 2;
+              const lvl = (band === 0 ? 0.3 : band === 1 ? 0.62 : 1.0) * Iref * 1.1;
+              const hn = lvl / I;
+              r = cr * lr * hn;
+              g = cg * lg * hn;
+              b = cb * lb * hn;
+              const sp = spr + spg + spb;
+              if (sp > 0.3 * Iref) {
+                r += 0.55 * Iref;
+                g += 0.55 * Iref;
+                b += 0.55 * Iref;
+              }
+              if (rimK > 0.4) {
+                r += rim[0] * 1.5;
+                g += rim[1] * 1.5;
+                b += rim[2] * 1.5;
+              }
+              const edge = d > -ow || (tD[j + 1] < 0 && tM[j + 1] !== m) || (tD[j - 1] < 0 && tM[j - 1] !== m) || (tD[j + W] < 0 && tM[j + W] !== m) || (tD[j - W] < 0 && tM[j - W] !== m);
+              sF[i] = (edge ? 8 : 0) | (band + 1);
+            } else {
+              r = cr * lr + spr + rim[0] * rimK;
+              g = cg * lg + spg + rim[1] * rimK;
+              b = cb * lb + spb + rim[2] * rimK;
+            }
             if (ground) {
               const ao = 0.55 + 0.45 * G.clamp((h - (sy + 0.5 - o.oy) * o.syw) / (h * 0.14), 0, 1);
               r *= ao;
@@ -896,6 +982,7 @@
             gl = Math.max(gl, flash * 0.5);
           }
         }
+        if (cel && (m === EMBER || (mats[m] && mats[m].e))) sF[i] = 3;
         sR[i] = fog[0] + (r - fog[0]) * fk;
         sG[i] = fog[1] + (g - fog[1]) * fk;
         sB[i] = fog[2] + (b - fog[2]) * fk;
@@ -1035,6 +1122,26 @@
       }
       if (!anyCol) continue;
       lightsFor(game, e.x, e.y, (e.z || 0) + e.h * 0.5, Math.hypot(e.x - P.x, e.y - P.y));
+      if (def.cel) {
+        // creatures keep a minimum exposure so threats stay readable in the dark
+        let I0 = (J.amb[0] + J.amb[1] + J.amb[2]) / 3;
+        for (let q = 0; q < J.lights; q++) I0 += (LTS[q].r + LTS[q].g + LTS[q].b) / 3;
+        const want = def.minLight || 0.42;
+        if (I0 < want) {
+          const k = Math.min(4, want / Math.max(0.02, I0));
+          J.amb[0] = J.amb[0] * k + 0.05;
+          J.amb[1] = J.amb[1] * k + 0.05;
+          J.amb[2] = J.amb[2] * k + 0.06;
+          for (let q = 0; q < J.lights; q++) {
+            LTS[q].r *= k;
+            LTS[q].g *= k;
+            LTS[q].b *= k;
+          }
+        }
+        J.rim[0] = J.rim[0] * 1.6 + 0.05;
+        J.rim[1] = J.rim[1] * 1.6 + 0.05;
+        J.rim[2] = J.rim[2] * 1.6 + 0.06;
+      }
       J.fogK = Math.exp(-s.d * st.fogD * 0.8);
       const hitK = e.hitT > 0 ? e.hitT / 0.22 : 0;
       const shear = (e.lean || 0) * hitK * 0.25 + (def.sway ? Math.sin(time * 1.3 + e.id) * def.sway : 0);
@@ -1046,7 +1153,7 @@
         ox: ox, oy: oy, sxw, syw, shear, h: e.h, rot: false,
         call: (X, Y) => md(X, Y, ee, time, MO),
         mats: def.mats, thick: def.thick, depth: s.d, time, e, dieT: e.dieT, spawnT: e.spawnT,
-        flash: e.flash > 0 ? Math.min(1, e.flash * 9) : 0, glow: def.glow, ground: (e.z || 0) < 0.05 && def.kind !== 'pickup',
+        flash: e.flash > 0 ? Math.min(1, e.flash * 9) : 0, glow: def.glow, ground: (e.z || 0) < 0.05 && def.kind !== 'pickup', cel: !!def.cel,
         stride: s.halfW > 34 || spH > 120 ? 3 : s.halfW > 12 || spH > 50 ? 2 : 1,
         idx: si, ember: def.blood ? [def.blood[0] * 2 + 0.6, def.blood[1] * 2 + 0.3, def.blood[2] * 2 + 0.1] : null,
       });
@@ -1128,6 +1235,56 @@
   R.put = put;
 
   const MIXED = ['ascii', 'blocks', 'braille', 'box', 'asciiFine', 'sigilB'];
+  // A cel-shaded creature cell: ink outlines become line glyphs, flat bands become glyph densities.
+  function celCell(DSP, ci, s0, e, set, entMask, sr, sg, sb, gl, time, cx, cy, ink) {
+    let fill = 0, fn = 0, fr = 0, fg = 0, fb = 0, er = 0, eg = 0, eb = 0, en = 0, bandSum = 0, outMask = 0;
+    for (let k = 0; k < 8; k++) {
+      const i = s0 + (k >> 1) * SW + (k & 1);
+      if (sM[i] !== MAT_ENT) continue;
+      const f = sF[i];
+      er += sR[i];
+      eg += sG[i];
+      eb += sB[i];
+      en++;
+      if (f & 8) outMask |= 1 << k;
+      else {
+        fill |= 1 << k;
+        fn++;
+        fr += sR[i];
+        fg += sG[i];
+        fb += sB[i];
+        bandSum += f & 7;
+      }
+    }
+    const lines = G.Glyphs.sets.ascii;
+    const nn = 8 - en;
+    const envR = nn ? (sr - er) / nn : 0, envG = nn ? (sg - eg) / nn : 0, envB = nn ? (sb - eb) / nn : 0;
+    const inkR = ink ? 0.04 : envR * 0.25, inkG = ink ? 0.03 : envG * 0.25, inkB = ink ? 0.04 : envB * 0.25;
+    const envL = envR * 0.3 + envG * 0.59 + envB * 0.11;
+    if (!fn) {
+      // pure outline: ink-dark against bright surroundings, a lit edge against the dark
+      const c = ink || envL > 0.25 ? 0.3 : 1.15;
+      put(DSP, ci, lines.lut[outMask] || lines.lut[entMask], (er / en) * c, (eg / en) * c, (eb / en) * c, inkR, inkG, inkB, ink ? 0 : 0.15);
+      return;
+    }
+    fr /= fn;
+    fg /= fn;
+    fb /= fn;
+    if (fill !== 255) {
+      put(DSP, ci, set.lut[fill], fr * 1.2, fg * 1.2, fb * 1.2, inkR, inkG, inkB, gl);
+      return;
+    }
+    const band = Math.round(bandSum / fn) - 1;
+    let g;
+    if (set.crawl) {
+      const bucket = set.buckets[band <= 0 ? 1 : band === 1 ? 3 : 5];
+      g = bucket[Math.floor(G.hash2(cx + e.id * 31, cy, Math.floor(time * 6 + e.id * 3)) * bucket.length)] || set.ramp[set.ramp.length - 1];
+    } else {
+      const n = set.ramp.length;
+      g = set.ramp[band <= 0 ? Math.max(1, (n * 0.35) | 0) : band === 1 ? Math.max(1, (n * 0.65) | 0) : n - 1];
+    }
+    put(DSP, ci, g, fr * 1.3, fg * 1.3, fb * 1.3, fr * 0.42, fg * 0.42, fb * 0.42, gl);
+  }
   R.toCells = function (game, DSP) {
     const L = game.level, st = L.st, sets = G.Glyphs.sets, cam = R.cam, P = game.player;
     const time = game.time;
@@ -1176,6 +1333,11 @@
         if (entN >= 1 && ent >= 0) {
           const spr = R.sprites[ent];
           const e = spr.e, set = sets[e.def.set || 'sigilA'] || alien;
+          if (e.def.cel) {
+            celCell(DSP, ci, s0, e, set, entMask, sr, sg, sb, gl, time, cx, cy, ink);
+            cellKind[ci] = 2;
+            continue;
+          }
           er /= entN;
           eg /= entN;
           eb /= entN;
@@ -1472,7 +1634,7 @@
         L.light(p.x, p.y, lt);
         const dd = Math.hypot(p.x - P.x, p.y - P.y), q = dd / P.lampRadius();
         const lamp = P.lanternOn ? Math.max(0, 1 - q * q) * 1.2 : 0;
-        k *= Math.min(1.4, (lt[0] + lt[1] + lt[2]) / 3 + lamp);
+        k *= Math.min(1.4, Math.max(p.litMin, (lt[0] + lt[1] + lt[2]) / 3 + lamp));
       }
       if (ink && !p.glow) {
         r = 1 - r;
@@ -1501,7 +1663,19 @@
           }
         }
       }
+      const glyph0 = p.tumble ? G.Phys.spinGlyph(p.ang) : p.g;
       const size = p.size ? (p.size * R.cam.projX) / prj.d / 2 : 0;
+      if (p.solid && size > 0.6) {
+        const rad = Math.min(7, size), ry = rad * (cw / ch);
+        for (let y = Math.floor(prj.cy - ry); y <= Math.ceil(prj.cy + ry); y++)
+          for (let x = Math.floor(prj.cx - rad); x <= Math.ceil(prj.cx + rad); x++) {
+            const ux = (x + 0.5 - prj.cx) / rad, uy = (y + 0.5 - prj.cy) / ry;
+            const q = ux * ux + uy * uy;
+            if (q > 1) continue;
+            dcol(x, y, q > 0.6 ? gl('sh:3') : p.g, kk * (1 - q * 0.45));
+          }
+        continue;
+      }
       if (size > 1.15) {
         const rad = Math.min(9, size), ry = rad * (cw / ch);
         for (let y = Math.floor(prj.cy - ry); y <= Math.ceil(prj.cy + ry); y++)
@@ -1515,7 +1689,7 @@
           }
         continue;
       }
-      dcol(cx, cy, p.g, kk);
+      dcol(cx, cy, glyph0, kk);
     }
   };
 

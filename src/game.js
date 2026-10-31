@@ -18,7 +18,7 @@
 
   const Game = (G.Game = {
     state: 'title', time: 0, frame: 0, nextId: 1,
-    ents: [], parts: [], voids: [], omens: [], bars: [], whispers: [], msgs: [], lights: [], dynLights: [], lines: [], rings: [], waves: [],
+    ents: [], parts: [], voids: [], omens: [], bars: [], whispers: [], msgs: [], lights: [], dynLights: [], lines: [], rings: [], waves: [], hazards: [], shocks: [],
     fx: { shake: 0, flash: 0, flashCol: [1, 1, 1], hitstop: 0, corrupt: 0, wallWarp: 0, collapse: 0, collapseTarget: 0, fovKick: 0, hitMarker: 0, invert: 0, aberr: 0 },
     st: { sel: 0 }, vm: { x: 0, y: 0, rot: 0, sway: 0, show: false, charge: 0 }, thirdPerson: false, cam: { x: 0, y: 0, a: 0, pitch: 0, z: 0.5 }, aimA: 0,
     gaze: 0, choir: 0, lanceLoop: false, prompt: null, titleT: 0, fpsShow: 0, msShow: 0,
@@ -125,12 +125,13 @@
   const FIRE = [[1, 1, 0.92], [1, 0.88, 0.45], [1, 0.55, 0.15], [0.75, 0.18, 0.04], [0.2, 0.04, 0.02]];
   Game.FIRE = FIRE;
   Game.part = function (o) {
-    if (this.parts.length > 1400) return null;
+    if (this.parts.length > 3200) return null;
     const p = {
       x: o.x, y: o.y, z: o.z || 0, vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0, grav: o.grav || 0, drag: o.drag || 0, life: o.life || 0.5,
       g: o.g === undefined ? GL.id('sym:dot') : o.g, r: o.r === undefined ? 1 : o.r, gr: o.gr === undefined ? 1 : o.gr, b: o.b === undefined ? 1 : o.b,
       glow: o.glow || 0, noDepth: o.noDepth, fade: o.fade, add: o.add, ramp: o.ramp, lit: o.lit, streak: o.streak, size: o.size || 0, grow: o.grow || 0,
-      splat: o.splat, buoy: o.buoy || 0, drip: o.drip,
+      splat: o.splat, buoy: o.buoy || 0, drip: o.drip, col: o.col, rest: o.rest || 0.3, fric: o.fric || 0.6, rad: o.rad || 0.03,
+      av: o.av || 0, ang: o.ang || G.rand.range(0, 7), tumble: o.tumble, litMin: o.litMin || 0, solid: o.solid, flutter: o.flutter || 0, sleep: false,
     };
     p.max = p.life;
     this.parts.push(p);
@@ -220,8 +221,16 @@
     this.ents.push({
       id: this.nextId++, type: 'orb', def: E.defs.orb, kind: 'proj', x: o.x, y: o.y, z: o.z || 0.5, vx: o.vx, vy: o.vy, dmg: o.dmg, team: o.team,
       life: o.life || 3, homing: o.homing || 0, col: o.col, emit: o.col, r: o.r || 0.15, h: big ? 0.7 : 0.36, w: big ? 0.7 : 0.36, glyph: o.glyph,
-      blast: o.blast, alive: true, hidden: !!o.glyph, data: {}, flash: 0,
+      blast: o.blast, alive: true, hidden: !!o.glyph, data: {}, flash: 0, vz: o.vz || 0, grav: o.grav || 0, land: o.land, src: o.src,
+      model: o.model, fire: o.fire,
     });
+    if (o.model) {
+      const p = this.ents[this.ents.length - 1];
+      p.def = E.defs[o.model];
+      p.h = p.def.h;
+      p.w = p.def.w;
+      p.z = o.z;
+    }
   };
   Game.omen = function (x, y, t, dmg) {
     this.omens.push({ x, y, t, max: t, dmg });
@@ -264,6 +273,7 @@
     const sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
     let sdx = (dx > 0 ? mx + 1 - x : x - mx) * ddx, sdy = (dy > 0 ? my + 1 - y : y - my) * ddy;
     let t0 = 0, ox = 0, oy = 0;
+    const walls = [];
     for (let i = 0; i < 256; i++) {
       let t, dir;
       if (sdx < sdy) {
@@ -288,13 +298,16 @@
       }
       mx = nx;
       my = ny;
-      if (stopWalls && L.wall(mx, my)) {
-        segs.push({ t0, t1: t, ox, oy });
-        return { segs, t, hit: true };
+      if (L.wall(mx, my)) {
+        if (stopWalls) {
+          segs.push({ t0, t1: t, ox, oy });
+          return { segs, t, hit: true, tx: mx, ty: my };
+        }
+        if (!walls.length || walls[walls.length - 1][0] !== mx || walls[walls.length - 1][1] !== my) walls.push([mx, my, t]);
       }
     }
     segs.push({ t0, t1: maxT, ox, oy });
-    return { segs, t: maxT, hit: false };
+    return { segs, t: maxT, hit: false, walls };
   };
 
   // Where shots visibly leave from: the weapon's muzzle in first person, the Reader's hand in third.
@@ -313,7 +326,7 @@
     const tr = this.trace(x, y, dx, dy, range, !o.walls, true);
     const hits = [];
     for (const e of this.ents) {
-      if (!e.alive || e.kind !== 'enemy') continue;
+      if (!e.alive || (e.kind !== 'enemy' && !e.def.shootable)) continue;
       for (const s of tr.segs) {
         const rx = e.x - s.ox - x, ry = e.y - s.oy - y;
         const t = rx * dx + ry * dy;
@@ -328,7 +341,14 @@
     hits.sort((p, q) => p.t - q.t);
     const use = o.pierce ? hits : hits.slice(0, 1);
     let total = 0;
-    for (const h of use) total += this.damageEnemy(h.e, dmg, { x: x + dx * h.t, y: y + dy * h.t, dirX: dx, dirY: dy, knock: o.knock, tick: o.tick });
+    for (const h of use) {
+      const ho = { x: x + dx * h.t, y: y + dy * h.t, dirX: dx, dirY: dy, knock: o.knock, tick: o.tick, src: 'player' };
+      if (h.e.kind === 'enemy') total += this.damageEnemy(h.e, dmg, ho);
+      else this.damageProp(h.e, dmg, ho);
+    }
+    // the world takes damage too
+    if (tr.hit && (o.pierce || !use.length)) G.Phys.damageWall(this, tr.tx, tr.ty, dmg * (o.tick ? 0.7 : o.wallMul || 0.45), x + dx * tr.t, y + dy * tr.t, 0.5, dx, dy);
+    if (o.rail && tr.walls) for (const w of tr.walls) G.Phys.damageWall(this, w[0], w[1], dmg * 0.9, x + dx * w[2], y + dy * w[2], 0.5, dx, dy);
     const endT = !o.pierce && use.length ? use[0].t : tr.t;
     // visuals live in the unwrapped space the camera sees
     const mz = this.muzzle(a);
@@ -363,7 +383,7 @@
     if (!e.alive) return 0;
     o = o || {};
     let d = dmg;
-    if (e.def.hurt) d = e.def.hurt(e, this, d);
+    if (e.def.hurt) d = e.def.hurt(e, this, d, o);
     if (!e.alive || d <= 0) return 0;
     const P = this.player;
     if (P.mods.lampDmg && P.lanternOn && this.distP(e) < P.lampRadius()) d *= 1 + P.mods.lampDmg;
@@ -377,10 +397,12 @@
     }
     e.alerted = true;
     if (e.state === 'idle') e.state = 'chase';
-    if (o.knock && !e.def.heavy) {
-      e.kx += (o.dirX || 0) * o.knock;
-      e.ky += (o.dirY || 0) * o.knock;
+    if (o.knock) {
+      const m = e.def.mass || (e.def.heavy ? 6 : 1);
+      e.kx += ((o.dirX || 0) * o.knock * 1.3) / m;
+      e.ky += ((o.dirY || 0) * o.knock * 1.3) / m;
     }
+    e.lastHit = o;
     if (!o.tick || Math.random() < 0.15) {
       const n = o.tick ? 1 : Math.min(7, 2 + Math.floor(d / 8));
       const blood = e.def.blood || [0.4, 0.05, 0.05];
@@ -413,32 +435,27 @@
       this.burst(e.x, e.y, e.h * 0.6, 10, [0.05, 0.05, 0.05], 'letters', 2);
       e.hp = 0;
     }
-    if (e.hp <= 0) this.killEnemy(e, o);
+    if (e.hp <= 0) this.killEnemy(e, o, -e.hp);
     return d;
   };
 
-  Game.killEnemy = function (e) {
+  Game.killEnemy = function (e, o, overkill) {
     if (!e.alive) return;
     e.alive = false;
     const P = this.player, def = e.def;
     if (def.phantom) return this.dissolve(e);
-    const glyphs = def.set === 'sigilA' || def.set === 'sigilB' || def.set === 'box' ? 'sigil' : 'letters';
-    e.dying = true;
-    e.dieT = 0;
+    o = o || e.lastHit || {};
     const blood = def.blood || [0.35, 0.05, 0.05];
     this.decal(e.x, e.y, 0, Math.min(1.2, 0.3 + e.r * 0.9), blood, 0.9, def.bloodEmit || 0);
-    this.splatter(e.x, e.y, (e.z || 0) + e.h * 0.5, 8, blood, 2.5, 0, 0, def.bloodEmit);
-    // the creature comes apart into its own letters, which drift up and away
-    const n = Math.min(40, 12 + Math.round(e.h * 10));
-    for (let i = 0; i < n; i++) {
-      const g = glyphs === 'sigil' ? GL.id((G.rand.chance(0.5) ? 'sa:' : 'sb:') + G.rand.int(0, 95)) : GL.ch(String.fromCharCode(65 + G.rand.int(0, 25)));
-      const c = def.boss ? [1, 0.3, 0.3] : e.col;
-      this.part({
-        x: e.x + G.rand.range(-e.w, e.w) * 0.35, y: e.y + G.rand.range(-0.2, 0.2), z: (e.z || 0) + G.rand.range(0.1, 1) * e.h,
-        vx: G.rand.range(-0.6, 0.6), vy: G.rand.range(-0.6, 0.6), vz: G.rand.range(0.2, 1.4), drag: 0.8, buoy: 0.6, life: G.rand.range(0.8, 1.8),
-        g, r: c[0] * 1.2, gr: c[1] * 1.2, b: c[2] * 1.2, glow: 0.35,
-      });
+    this.splatter(e.x, e.y, (e.z || 0) + e.h * 0.5, 10, blood, 3, o.dirX, o.dirY, def.bloodEmit);
+    // the creature's own body comes apart into physical fragments of its alphabet
+    const force = 2.5 + Math.min(6, (overkill || 0) / 12) + (o.blast ? 4 : 0) + (def.heavy ? 1.5 : 0);
+    G.Phys.shatter(this, e, force, o.dirX || 0, o.dirY || 0, def.boss ? 520 : def.heavy ? 320 : 200);
+    if (def.boss) {
+      e.dying = true;
+      e.dieT = 0;
     }
+    this.smoke(e.x, e.y, (e.z || 0) + e.h * 0.4, 4, 0.35, [blood[0] * 0.8 + 0.1, blood[1] * 0.8 + 0.05, blood[2] * 0.8 + 0.05], 0.4);
     this.sparks(e.x, e.y, (e.z || 0) + e.h * 0.5, def.heavy ? 18 : 8, 3.5);
     if (def.heavy) {
       this.ring(e.x, e.y, 0.03, 0.2, 2.4, 0.5, [1, 0.5, 0.3]);
@@ -467,25 +484,82 @@
     if (def.boss && !def.sub) this.bossKilled(e);
   };
 
-  Game.explode = function (x, y, rad, dmg) {
+  // Explosions: damage creatures, things and walls in the radius, shove everything, and leave scars.
+  // o.fire: a fire blast (orange, leaves burning ground); o.player: also hurts the Reader; o.small: no screen-wide effects.
+  Game.explode = function (x, y, rad, dmg, o) {
+    o = o || {};
+    const P = this.player, L = this.level;
     for (const e of this.ents) {
-      if (!e.alive || e.kind !== 'enemy') continue;
+      if (!e.alive) continue;
       const d = Math.hypot(e.x - x, e.y - y);
-      if (d < rad + e.r) this.damageEnemy(e, dmg * (1 - (0.6 * Math.min(d, rad)) / rad), { knock: 5, dirX: (e.x - x) / (d || 1), dirY: (e.y - y) / (d || 1) });
+      if (d > rad + e.r) continue;
+      const k = 1 - (0.6 * Math.min(d, rad)) / rad;
+      const ho = { knock: 6, dirX: (e.x - x) / (d || 1), dirY: (e.y - y) / (d || 1), blast: true };
+      if (e.kind === 'enemy' && (o.team !== 'enemy' || o.all)) this.damageEnemy(e, dmg * k, ho);
+      else if (e.def.shootable) this.damageProp(e, dmg * k, ho);
     }
-    this.voids.push({ x, y, r: rad, life: 0.45, max: 0.45 });
-    this.ring(x, y, 0.05, 0.3, rad * 1.6, 0.6, [0.9, 0.55, 1]);
-    this.ring(x, y, 0.6, 0.2, rad * 1.1, 0.45, [1, 0.85, 1], { glyph: GL.id('sym:star') });
-    this.sparks(x, y, 0.5, 30, 7, 0, 0, [0.9, 0.6, 1]);
-    this.smoke(x, y, 0.3, 8, 0.6, [0.35, 0.25, 0.45], 0.8);
-    this.decal(x, y, 0, rad * 0.55, [0.02, 0.01, 0.03], 0.8, 0);
-    this.wave(x, y, 1.2);
-    this.shake(9);
-    this.flash([0.9, 0.85, 1], 0.25);
-    this.fx.invert = 0.6;
+    if (o.player || o.team === 'enemy') {
+      const d = Math.hypot(P.x - x, P.y - y);
+      if (d < rad) this.hurtPlayer((o.pdmg || dmg * 0.35) * (1 - (0.5 * d) / rad), x, y, o.src || null);
+    }
+    // walls within reach crack or collapse
+    const r0 = Math.ceil(rad);
+    for (let ty = Math.floor(y) - r0; ty <= Math.floor(y) + r0; ty++)
+      for (let tx = Math.floor(x) - r0; tx <= Math.floor(x) + r0; tx++) {
+        if (!L.inb(tx, ty) || !L.tiles[ty * L.w + tx]) continue;
+        const d = Math.hypot(tx + 0.5 - x, ty + 0.5 - y);
+        if (d < rad + 0.6) G.Phys.damageWall(this, tx, ty, dmg * (o.wallMul || 1.3) * (1 - d / (rad + 0.8)), tx + 0.5, ty + 0.5, 0.6, (tx + 0.5 - x) / (d || 1), (ty + 0.5 - y) / (d || 1));
+      }
+    G.Phys.impulse(this, x, y, 0.4, rad * 1.8, o.force || 9);
+    const fire = !!o.fire;
+    const c1 = o.col || (fire ? [1, 0.55, 0.15] : [0.9, 0.55, 1]);
+    if (!fire && !o.small) this.voids.push({ x, y, r: rad, life: 0.45, max: 0.45 });
+    this.ring(x, y, 0.05, 0.3, rad * 1.6, 0.6, c1);
+    this.ring(x, y, 0.6, 0.2, rad * 1.1, 0.45, [1, 0.9, 0.8], { glyph: GL.id('sym:star') });
+    if (fire) {
+      for (let i = 0; i < 46; i++) {
+        const a = G.rand.range(0, G.TAU), s = G.rand.range(1, 6);
+        this.part({ x, y, z: 0.4, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: G.rand.range(0.5, 4), drag: 2.2, buoy: 4, life: G.rand.range(0.4, 1.1), size: G.rand.range(0.15, 0.4), grow: 0.4, g: GL.ch('*'), ramp: FIRE, add: true, glow: 1 });
+      }
+      this.hazards.push({ x, y, r: rad * 0.55, t: 3.5, type: 'fire', dmg: 12, burnsAll: true });
+      this.decal(x, y, 0, rad * 0.7, [0.03, 0.02, 0.015], 0.85, 0);
+    } else this.decal(x, y, 0, rad * 0.55, [0.02, 0.01, 0.03], 0.8, 0);
+    this.sparks(x, y, 0.5, 34, 8, 0, 0, fire ? null : [0.9, 0.6, 1]);
+    this.smoke(x, y, 0.3, fire ? 12 : 8, 0.6, fire ? [0.25, 0.2, 0.18] : [0.35, 0.25, 0.45], 0.9);
+    for (let i = 0; i < 18; i++) {
+      const a = G.rand.range(0, G.TAU), s = G.rand.range(2, 7);
+      this.part({ x, y, z: 0.3, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: G.rand.range(1, 5), grav: 11, col: true, rest: 0.35, fric: 0.6, life: G.rand.range(1.5, 3), g: GL.ch(G.rand.pick(['#', '%', '*', '='])), r: 0.3, gr: 0.25, b: 0.22, lit: true, tumble: true, av: G.rand.range(-15, 15) });
+    }
+    this.wave(x, y, o.small ? 0.5 : 1.2);
+    this.shake(o.small ? 4 : 9);
+    if (!o.small) this.flash(fire ? [1, 0.8, 0.5] : [0.9, 0.85, 1], 0.22);
+    if (!fire && !o.small) this.fx.invert = 0.6;
     this.sound('boom', x, y);
-    this.addLight(x, y, [0.8, 0.5, 1], rad * 3, 2, 0.3);
-    this.burst(x, y, 0.5, 26, [0.85, 0.5, 1], 'sigil', 5);
+    this.addLight(x, y, fire ? [1, 0.6, 0.25] : [0.8, 0.5, 1], rad * 3, 2, 0.35);
+    if (!fire) this.burst(x, y, 0.5, 20, [0.85, 0.5, 1], 'sigil', 5);
+  };
+
+  // Shootable things: props shatter, casks explode.
+  Game.damageProp = function (e, dmg, o) {
+    if (!e.alive) return;
+    o = o || {};
+    e.hp -= dmg;
+    e.flash = 0.06;
+    const m = e.def.mass || 1;
+    e.kx += ((o.dirX || 0) * (2 + dmg * 0.08)) / m;
+    e.ky += ((o.dirY || 0) * (2 + dmg * 0.08)) / m;
+    if (o.blast) e.vz = Math.max(e.vz || 0, 3 / m);
+    e.sleep = false;
+    if (e.def.onHurt) e.def.onHurt(e, this, dmg, o);
+    if (e.hp <= 0 && e.alive && !e.def.fuse) this.breakProp(e, o);
+  };
+  Game.breakProp = function (e, o) {
+    e.alive = false;
+    o = o || {};
+    G.Phys.shatter(this, e, 3 + (o.blast ? 4 : 0), o.dirX || 0, o.dirY || 0, 140);
+    this.smoke(e.x, e.y, e.h * 0.5, 3, 0.25, null, 0.3);
+    this.sound('crumble', e.x, e.y, { vol: 0.5 });
+    if (e.def.onBreak) e.def.onBreak(e, this, o);
   };
 
   Game.hurtPlayer = function (dmg, sx, sy, src) {
@@ -555,6 +629,9 @@
     this.lines = [];
     this.rings = [];
     this.waves = [];
+    this.hazards = [];
+    this.shocks = [];
+    G.Phys.initWalls(L);
     this.bossRef = null;
     this.fx.collapse = 0;
     this.fx.collapseTarget = 0;
@@ -846,36 +923,7 @@
     this.updateParticles(dt);
   };
   Game.updateParticles = function (dt) {
-    const ps = this.parts;
-    let j = 0;
-    for (let i = 0; i < ps.length; i++) {
-      const p = ps[i];
-      p.life -= dt;
-      if (p.life <= 0) continue;
-      if (p.drag) {
-        const k = Math.max(0, 1 - p.drag * dt);
-        p.vx *= k;
-        p.vy *= k;
-        p.vz *= k;
-      }
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vz -= (p.grav - p.buoy) * dt;
-      p.z += p.vz * dt;
-      if (p.grow) p.size += p.grow * dt;
-      if (p.z < 0.02) {
-        if (p.splat) {
-          this.decal(p.x, p.y, 0, G.rand.range(0.04, 0.12), p.splat.c, 0.85, p.splat.em);
-          continue;
-        }
-        p.z = 0.02;
-        p.vz = 0;
-        p.vx *= 0.7;
-        p.vy *= 0.7;
-      }
-      ps[j++] = p;
-    }
-    ps.length = j;
+    G.Phys.update(this, dt);
   };
 
   Game.updatePlay = function (dt) {
@@ -951,7 +999,27 @@
       if (e.kind === 'enemy') {
         e.kx *= Math.max(0, 1 - dt * 7);
         e.ky *= Math.max(0, 1 - dt * 7);
+        if (e.buffT > 0) {
+          e.buffT -= dt;
+          e.vx *= 1.4;
+          e.vy *= 1.4;
+          if (Math.random() < dt * 10) this.part({ x: e.x + G.rand.range(-0.2, 0.2), y: e.y + G.rand.range(-0.2, 0.2), z: (e.z || 0) + e.h * Math.random(), vz: 0.8, life: 0.5, g: GL.ch('*'), r: 1, gr: 0.85, b: 0.4, add: true, glow: 0.8 });
+        }
         e.blocked = L.move(e, (e.vx + e.kx) * dt, (e.vy + e.ky) * dt, e.r, false);
+        if (!e.def.ownZ && !e.ownZ && (e.vz || e.z > (e.def.z || 0) + 0.001)) {
+          // thrown into the air by blasts and leaps
+          e.vz = (e.vz || 0) - 14 * dt;
+          e.z += e.vz * dt;
+          if (e.z <= (e.def.z || 0)) {
+            e.z = e.def.z || 0;
+            if (e.vz < -3) {
+              this.smoke(e.x, e.y, 0.05, 2, 0.2, null, 0.15);
+              this.sound('thud', e.x, e.y, { vol: 0.5 });
+              if (e.def.onLand) e.def.onLand(e, this);
+            }
+            e.vz = 0;
+          }
+        }
         const spd = Math.hypot(e.vx, e.vy);
         const want = spd > 0.25 ? Math.atan2(e.vy, e.vx) : e.state !== 'idle' ? Math.atan2(P.y - e.y, P.x - e.x) : e.face;
         e.face += G.angleDiff(e.face, want) * Math.min(1, dt * 7);
@@ -1030,6 +1098,8 @@
     for (const l of this.lights) l.life -= dt;
     this.lights = this.lights.filter((l) => l.life > 0);
     this.updateEffects(dt);
+    G.Phys.bodies(this, dt);
+    G.Phys.hazards(this, dt);
     this.ambient(dt);
     this.director(dt);
     // audio state
@@ -1050,7 +1120,16 @@
       e.vx = Math.cos(na) * sp;
       e.vy = Math.sin(na) * sp;
     }
-    const sp = Math.hypot(e.vx, e.vy);
+    if (e.grav) {
+      e.vz -= e.grav * dt;
+      e.z += e.vz * dt;
+      e.spin = (e.spin || 0) + dt * 8;
+      if (e.z <= 0.05) {
+        e.z = 0.05;
+        return this.projEnd(e, true);
+      }
+    }
+    const sp = Math.hypot(e.vx, e.vy) || 1;
     const steps = Math.max(1, Math.ceil((sp * dt) / 0.15));
     for (let s = 0; s < steps; s++) {
       let nx = e.x + (e.vx * dt) / steps, ny = e.y + (e.vy * dt) / steps;
@@ -1081,7 +1160,7 @@
             return this.projEnd(e, true);
           }
         }
-      } else if (Math.hypot(P.x - e.x, P.y - e.y) < 0.28 + e.r) {
+      } else if ((!e.grav || e.z < 1.1) && Math.hypot(P.x - e.x, P.y - e.y) < 0.28 + e.r) {
         this.hurtPlayer(e.dmg, e.x - e.vx, e.y - e.vy, null);
         return this.projEnd(e, true);
       }
@@ -1096,7 +1175,18 @@
   };
   Game.projEnd = function (e, hit) {
     e.alive = false;
-    if (e.blast) return this.explode(e.x, e.y, e.blast, e.dmg);
+    if (e.land === 'gas') {
+      this.hazards.push({ x: e.x, y: e.y, r: 1.7, t: 4.5, type: 'gas', dmg: 3, luc: 6, col: [0.35, 0.8, 0.3] });
+      this.smoke(e.x, e.y, 0.2, 10, 0.5, [0.35, 0.75, 0.3], 0.4);
+      this.sound('splash', e.x, e.y);
+      return;
+    }
+    if (e.land === 'chunk') {
+      this.explode(e.x, e.y, 1.5, e.dmg, { team: 'enemy', pdmg: e.dmg, small: true, src: e.src, force: 6 });
+      if (e.def.model) G.Phys.shatter(this, e, 4, 0, 0, 90);
+      return;
+    }
+    if (e.blast) return this.explode(e.x, e.y, e.blast, e.dmg, { fire: e.fire, team: e.team, pdmg: e.dmg * 0.5 });
     if (hit) {
       if (e.glyph) this.burst(e.x, e.y, e.z, 2, e.col, 'letters', 1.5);
       else {

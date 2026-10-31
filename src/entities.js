@@ -548,7 +548,7 @@
         dd.ring = phase === 3 ? 1.6 : 2.6;
       }
       if (phase >= 2 && dd.sum <= 0) {
-        const types = ['lurker', 'echo', 'wretch', 'choir'];
+        const types = ['lurker', 'echo', 'wretch', 'choir', 'hound', 'cipher', 'wraith', 'mite'];
         for (let i = 0; i < 2; i++) {
           const a = G.rand.range(0, G.TAU);
           g.spawn(G.rand.pick(types), A.cx + cos(a) * (A.r - 2), A.cy + sin(a) * (A.r - 2), { state: 'chase', summon: true });

@@ -58,6 +58,17 @@ text, and the thing beneath it is erasing it.
 | Lurker | visible only in peripheral vision; freezes when looked at | remember where it vanished and shoot there |
 | Maw | roars, then charges; stuns itself on walls | sidestep, then punish the stun (double damage) |
 | Phantasm | hallucination, harmless | its edges flicker; don't waste ammunition |
+| Tome swarm | flocks (boids), bites, scatters | blasts break the flock |
+| Scrivener | darts in bursts, writes floor mines, blinks when cornered | watch the floor; corner it after the blink |
+| The Hanged | waits overhead, drops when you pass beneath | look up |
+| Tendril Bloom | rooted whip, lobbed spores leave mind-rotting gas | stay out of reach, kill it from range |
+| Broodsac / Mite | wounds release kamikaze mites | burst it from afar; shoot mites first |
+| Margin Hound | packs circle, crouch, then pounce | dash sideways at the crouch |
+| Bell-ringer | tolls an expanding ring; hastens allies | dash through the ring |
+| Cipher | rotating shield; aims, then sweeps a beam | shoot through the gap; move after the aim |
+| Mirror Knight | reflects frontal hits; lance charge, stuns on walls | flank, blast, or punish the stun |
+| Candlewick Wraith | orbits, dives through you leaving fire; explodes on death | kill it at range |
+| Ink Golem | book-plate armour, floor slam, thrown debris | dash through the slam; break the plates |
 | The Redactor | blacks out bands of the screen, fires fans, summons, blinks | read the gaps between the moving bars |
 | The Unwritten | four seals shield the heart; rains omens, rings of notes; the page collapses | break the seals, then the heart |
 
@@ -73,6 +84,17 @@ text, and the thing beneath it is erasing it.
   Shading has diffuse, wrapped subsurface, specular (power by repeated squaring) and rim terms, plus
   refraction for the Hollow's invisibility. Animation: walk cycles driven by movement, facing, attack
   telegraphs, hit lean, dissolve-to-ember deaths, and fade-in summons.
+- **Cel shading:** for creatures, light is quantized relative to the model's own exposure into three
+  bands, with hard specular and rim terms. Samples on the silhouette or on a material boundary are
+  flagged as ink. At glyph level, ink becomes line glyphs over a dark ground, and flat fill becomes a
+  glyph density chosen by band. Creatures keep a minimum exposure so threats stay readable in the dark.
+- **Physics:** particles integrate with gravity, drag and buoyancy. They collide per axis against the
+  tile grid with restitution and friction, and sleep when at rest. Impulses push particles, props and
+  creatures (by mass; light ones go airborne). Deaths sample the creature's model on a world-space grid
+  and emit one physical fragment per interior sample, coloured by material.
+- **Destruction:** every wall tile has hit points by material, and the map border is indestructible.
+  Damage draws procedural cracks; collapse spawns rubble and dust, leaves a stain, and re-bakes the
+  lightmap and flow field.
 - **Effects:** sparks, smoke, ink droplets that become stains, rings, perspective tracer lines, contact
   shadows, light spilled by creatures, and ambient particles for each stratum, all depth-tested against the glyph grid.
 - **Lighting:** a baked line-of-sight lightmap with bilinear sampling, a lantern falloff table,
@@ -85,8 +107,9 @@ text, and the thing beneath it is erasing it.
 
 ## Risks and mitigations
 
-- **CPU cost of per-sample raycasting.** Lightmap samples are shared across row pairs, there are no
-  per-frame allocations, and glyph size is a player option.
+- **CPU cost of per-sample raycasting.** Lightmap samples are shared across row pairs. Dynamic lights
+  are culled per tile with bitmasks, and the sky is a lazily refreshed cached panorama. There are no
+  per-frame allocations in the hot loops, and glyph size is a player option.
 - **Readability under corruption.** Creature cells are exempt, threats have minimum brightness,
   and a reduce-flashing option exists.
 - **Font variance across platforms.** Only ASCII comes from the system font; blocks, braille, box-drawing,

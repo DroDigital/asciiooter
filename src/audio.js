@@ -239,6 +239,45 @@
       env(o, t, 0.002, L * 0.3, 0.15);
       osc('square', 160, 120, t, 0.15, filt('lowpass', 900, 900, 1, t, 0.15, o));
     },
+    crumble(t, o, L) {
+      env(o, t, 0.005, L * 1.1, 1.2);
+      noise(t, 1.3, filt('lowpass', 1800, 120, 0.8, t, 1.2, o));
+      for (let i = 0; i < 6; i++) {
+        const g2 = A.ctx.createGain();
+        g2.connect(o);
+        env(g2, t + i * 0.07 + Math.random() * 0.05, 0.002, 0.5, 0.08);
+        noise(t + i * 0.07, 0.1, filt('bandpass', 600 + Math.random() * 1500, 600, 3, t, 0.1, g2));
+      }
+    },
+    bell(t, o, L) {
+      env(o, t, 0.005, L * 0.9, 2.6);
+      [1, 2.76, 5.4, 8.93].forEach((r, i) => osc('sine', 196 * r, 196 * r * 0.995, t, 2.6 - i * 0.4, o));
+    },
+    beep(t, o, L) {
+      env(o, t, 0.002, L * 0.4, 0.35);
+      [0, 0.12, 0.24].forEach((d) => osc('square', 1600, 1600, t + d, 0.05, filt('lowpass', 3000, 3000, 1, t, 0.4, o)));
+    },
+    whoosh(t, o, L) {
+      env(o, t, 0.1, L * 0.6, 0.35);
+      noise(t, 0.5, filt('bandpass', 300, 1500, 1.5, t, 0.45, o));
+    },
+    howl(t, o, L) {
+      env(o, t, 0.08, L * 0.5, 0.5);
+      osc('sawtooth', 300, 700, t, 0.55, filt('bandpass', 900, 1300, 6, t, 0.55, o));
+    },
+    flap(t, o, L) {
+      env(o, t, 0.01, L * 0.3, 0.12);
+      noise(t, 0.15, filt('bandpass', 1200, 600, 2, t, 0.12, o));
+    },
+    ping(t, o, L) {
+      env(o, t, 0.001, L * 0.5, 0.25);
+      osc('sine', 2400, 2200, t, 0.25, o);
+      osc('sine', 3700, 3500, t, 0.18, o);
+    },
+    fuse(t, o, L) {
+      env(o, t, 0.01, L * 0.4, 0.45);
+      noise(t, 0.5, filt('highpass', 4000, 6000, 1, t, 0.45, o));
+    },
     // creatures
     groan(t, o, L) {
       env(o, t, 0.15, L * 0.5, 0.7);

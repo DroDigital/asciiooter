@@ -22,7 +22,7 @@
       wall: { [M.BRICK]: hex('#a8743c'), [M.INSCRIBED]: hex('#c9a265'), [M.SHELVES]: hex('#9a6a36'), [M.PILLAR]: hex('#b8894f') },
       floor: hex('#6a4626'), ceil: hex('#2b1d10'), sky: null, skyChance: 0, water: 0,
       accent: hex('#ffb347'), root: 55, ink: false,
-      enemies: { wretch: 6, moth: 3, watcher: 1.4 },
+      enemies: { wretch: 5, moth: 2.5, watcher: 1.2, tome: 2.2, scrivener: 1, hanged: 1.6 },
       props: ['books', 'candles', 'books'],
     },
     {
@@ -33,7 +33,7 @@
       wall: { [M.STONE]: hex('#3f8f8a'), [M.KELP]: hex('#2f7a5c'), [M.SHELVES]: hex('#4c6d73'), [M.INSCRIBED]: hex('#6fb8b0'), [M.PILLAR]: hex('#5aa39b') },
       floor: hex('#1f4b4d'), ceil: hex('#0f2628'), sky: 'sea', skyChance: 0.3, water: 0.7,
       accent: hex('#5ff2e0'), root: 49, ink: false,
-      enemies: { wretch: 3, drowned: 5, moth: 2, hollow: 2.5 },
+      enemies: { wretch: 2.5, drowned: 4.5, moth: 1.5, hollow: 2.2, bloom: 2, broodsac: 1.2, mite: 1, tome: 1 },
       props: ['coral', 'books', 'candles'],
     },
     {
@@ -44,7 +44,7 @@
       wall: { [M.BONE]: hex('#d8cfba'), [M.BRICK]: hex('#8f3a32'), [M.INSCRIBED]: hex('#c7b79a'), [M.PILLAR]: hex('#cdbfa4'), [M.FLESH]: hex('#9a3b3b') },
       floor: hex('#4a2a26'), ceil: hex('#1d1010'), sky: null, skyChance: 0, water: 0,
       accent: hex('#ff4a3d'), root: 41.2, ink: false,
-      enemies: { wretch: 3, hollow: 3, watcher: 2.4, lurker: 2, choir: 1.4 },
+      enemies: { wretch: 2.5, hollow: 2.4, watcher: 2, lurker: 1.8, choir: 1.3, hound: 2.4, bellringer: 1.2, hanged: 1.5, broodsac: 1 },
       props: ['bones', 'candles', 'bones'],
     },
     {
@@ -55,7 +55,7 @@
       wall: { [M.CRYSTAL]: hex('#8f6cd8'), [M.PILLAR]: hex('#b9a3e8'), [M.STONE]: hex('#5d4a8a'), [M.FLESH]: hex('#a04a7a'), [M.INSCRIBED]: hex('#c4b0f0') },
       floor: hex('#3a2c5a'), ceil: hex('#120c20'), sky: 'cosmos', skyChance: 0.6, water: 0,
       accent: hex('#d58cff'), root: 61.7, ink: false,
-      enemies: { choir: 4, echo: 3, lurker: 2.4, maw: 1.2, watcher: 2 },
+      enemies: { choir: 3, echo: 2.4, lurker: 2, maw: 1.1, watcher: 1.4, cipher: 2, knight: 1.3, wraith: 2, inkhulk: 0.6, bellringer: 0.8 },
       props: ['crystals', 'candles'],
     },
     {
@@ -66,7 +66,7 @@
       wall: { [M.VOID]: hex('#efece4'), [M.INSCRIBED]: hex('#ddd6c8'), [M.PILLAR]: hex('#f6f3ec') },
       floor: hex('#e8e3d8'), ceil: hex('#f2efe8'), sky: 'void', skyChance: 1, water: 0,
       accent: hex('#d01c1c'), root: 36.7, ink: true,
-      enemies: { echo: 3, maw: 2, choir: 3, lurker: 2.5, watcher: 2, wretch: 2 },
+      enemies: { echo: 2.4, maw: 1.4, choir: 2, lurker: 2, watcher: 1.4, wretch: 1.5, cipher: 2, knight: 1.5, wraith: 1.5, inkhulk: 1, scrivener: 1.4, hound: 1.5 },
       props: ['crystals'],
     },
   ];
@@ -85,7 +85,10 @@
   ];
   D.RELIC_AFTER = new Set([1, 3, 5, 7]);
 
-  D.COST = { wretch: 1, moth: 0.6, watcher: 2, hollow: 1.6, drowned: 1.3, choir: 2.2, echo: 2, lurker: 1.8, maw: 4 };
+  D.COST = {
+    wretch: 1, moth: 0.6, watcher: 2, hollow: 1.6, drowned: 1.3, choir: 2.2, echo: 2, lurker: 1.8, maw: 4,
+    tome: 0.45, scrivener: 2.4, inkhulk: 6, wraith: 2, bloom: 2.5, hound: 1, cipher: 2.6, bellringer: 2.4, broodsac: 2.8, mite: 0.4, knight: 3.5, hanged: 1.4,
+  };
 
   // Weapons. ammo: null (infinite) | 'verse' | 'letters' | 'oil' | 'lucidity'.
   D.WEAPONS = {
@@ -255,11 +258,23 @@
     echo: { name: 'ECHO', epi: 'it is not sure which of you is real', rule: 'Every shot you fire at it, it returns. Kill it with few, heavy blows.' },
     lurker: { name: 'LURKER', epi: 'it lives at the edge of sight', rule: 'Only visible in the corner of your eye. Look at it and it freezes, unseen.' },
     maw: { name: 'MAW', epi: 'an appetite with a body attached', rule: 'It roars before it charges. Sidestep: it stuns itself on walls.' },
+    tome: { name: 'TOME SWARM', epi: 'books that learned to bite', rule: 'They flock. Break the flock with a blast; never chase a single page.' },
+    scrivener: { name: 'SCRIVENER', epi: 'it writes the traps you walk into', rule: 'It lays glowing mines and blinks away when cornered. Watch the floor.' },
+    inkhulk: { name: 'INK GOLEM', epi: 'a library that stood up', rule: 'Its book-plates blunt your damage until they break. Dash through the slam.' },
+    wraith: { name: 'CANDLEWICK WRAITH', epi: 'a vigil that never went out', rule: 'It dives through you and leaves fire. Kill it at range: it bursts into flame.' },
+    bloom: { name: 'TENDRIL BLOOM', epi: 'something planted in the margins', rule: 'Rooted. It whips anything close and lobs spores that rot the mind.' },
+    hound: { name: 'MARGIN HOUND', epi: 'it hunts in the white space', rule: 'Packs circle, then pounce. Dash sideways when one crouches.' },
+    cipher: { name: 'CIPHER', epi: 'a question with no answer, rotating', rule: 'Its shield turns. Strike through the gap; dodge the beam once it has aimed.' },
+    bellringer: { name: 'BELL-RINGER', epi: 'it tolls for the unread', rule: 'The toll travels outward as a ring. Dash through it. It hastens nearby foes.' },
+    broodsac: { name: 'BROODSAC', epi: 'full, and getting fuller', rule: 'Every wound releases mites. Burst it from afar, and mind the gas.' },
+    mite: { name: 'MITE', epi: 'a full stop with legs', rule: 'It explodes when it reaches you. Shoot first.' },
+    knight: { name: 'MIRROR KNIGHT', epi: 'it returns what you give it', rule: 'Its shield reflects shots from the front. Flank it, blast it, or catch it charging.' },
+    hanged: { name: 'THE HANGED', epi: 'a reader who stopped reading', rule: 'It waits above. Look up before you walk under.' },
     phantasm: { name: 'PHANTASM', epi: 'a mistake your mind is making', rule: 'Harmless. Their letters fail at the edges. Do not waste your ink.' },
     redactor: { name: 'THE REDACTOR', epi: 'appointed to keep you from certain words', rule: 'It blacks out the world in bars. The bars move - read the gaps.' },
     unwritten: { name: 'THE UNWRITTEN', epi: 'the shape of where something should be', rule: 'Break the four seals. Then strike the heart before the page empties.' },
   };
-  D.CODEX_ORDER = ['wretch', 'moth', 'watcher', 'hollow', 'drowned', 'choir', 'echo', 'lurker', 'maw', 'phantasm', 'redactor', 'unwritten'];
+  D.CODEX_ORDER = ['wretch', 'moth', 'tome', 'scrivener', 'hanged', 'watcher', 'hollow', 'drowned', 'bloom', 'broodsac', 'mite', 'hound', 'bellringer', 'choir', 'echo', 'lurker', 'maw', 'cipher', 'knight', 'wraith', 'inkhulk', 'phantasm', 'redactor', 'unwritten'];
 
   D.LORE = [
     'The Archive was not built. It was remembered into place, one shelf at a time, by people who were afraid of forgetting.',

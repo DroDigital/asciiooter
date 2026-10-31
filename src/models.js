@@ -683,7 +683,7 @@
     w: 1.4, h: 2.2, thick: 0.1,
     mats: [mat('#8a8a96', 0.05)],
     model(X, Y, e, t, o) {
-      const m = M[(e.data && e.data.mimic) || 'wretch'];
+      const m = G.Ent.defs[(e.data && e.data.mimic) || 'wretch'];
       m.model(X, Y, e, t, o);
       o.m = 0;
       o.e = 1;

@@ -441,8 +441,14 @@
         let type = rng.weighted(st.enemies);
         const p = L.randomFloorIn(r, rng, 1);
         if (type === 'drowned' && !(L.flags[Math.floor(p.y) * W + Math.floor(p.x)] & F.WATER)) type = 'wretch';
-        rb -= D.COST[type];
-        sp.push({ type, x: p.x, y: p.y });
+        const grp = G.Ent.defs[type] && G.Ent.defs[type].group;
+        const n = grp ? rng.int(grp[0], grp[1]) : 1;
+        for (let k = 0; k < n; k++) {
+          const q = k ? { x: p.x + rng.range(-0.7, 0.7), y: p.y + rng.range(-0.7, 0.7) } : p;
+          if (L.wall(Math.floor(q.x), Math.floor(q.y))) continue;
+          sp.push({ type, x: q.x, y: q.y });
+        }
+        rb -= D.COST[type] * n;
       }
     }
     // pickups and props
@@ -470,6 +476,13 @@
         if (kind === 'candles') L.lights.push({ x: p.x, y: p.y, rad: 3.5, i: 0.55, c: [1, 0.7, 0.35] });
         if (kind === 'crystals') L.lights.push({ x: p.x, y: p.y, rad: 3, i: 0.4, c: st.ink ? [0.3, 0.3, 0.3] : [0.6, 0.4, 1] });
       }
+    }
+    // oil casks: shoot them
+    const nCask = rng.int(1, 3);
+    for (let k = 0; k < nCask; k++) {
+      const r = rng.pick(combat);
+      const p = L.randomFloorIn(r, rng, 1);
+      sp.push({ type: 'cask', x: p.x, y: p.y });
     }
     if (opts && opts.weapon) {
       const r = rng.pick(combat);
