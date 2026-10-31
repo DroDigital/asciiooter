@@ -14,6 +14,8 @@
   R.MAT = { MAT_CEIL, MAT_FLOOR, MAT_WALL, MAT_ENT, MAT_WATER, MAT_SKY };
 
   let cols = 0, rows = 0, SW = 0, SH = 0;
+  // The vertical strip of sample columns this renderer owns (the whole screen unless threaded).
+  let X0 = 0, X1 = 0;
   let sR, sG, sB, sD, sM, sE, sGl, sF;
   let zbuf, cTop, cBot, cU, cTile, cSide, cPN, cPT, cPOX, cPOY, cRayLen, cRdx, cRdy;
   let rowDist, cellDepth, cellKind;
@@ -24,42 +26,50 @@
   R.cam = {};
   R.offsets = [];
 
+  // Sample buffers live in shared memory when it is available, so worker threads can raycast
+  // vertical strips of the same frame (see mt.js).
+  const BUFS = [
+    ['sR', Float32Array, 1], ['sG', Float32Array, 1], ['sB', Float32Array, 1], ['sD', Float32Array, 1],
+    ['sM', Uint8Array, 1], ['sE', Int16Array, 1], ['sGl', Float32Array, 1], ['sF', Uint8Array, 1],
+    ['zbuf', Float32Array, 0], ['cTop', Float32Array, 0], ['cBot', Float32Array, 0], ['cU', Float32Array, 0],
+    ['cTile', Int32Array, 0], ['cSide', Uint8Array, 0], ['cPN', Uint8Array, 0], ['cPT', Float32Array, K],
+    ['cPOX', Float32Array, K], ['cPOY', Float32Array, K], ['cRayLen', Float32Array, 0], ['cRdx', Float32Array, 0],
+    ['cRdy', Float32Array, 0],
+  ];
   R.alloc = function (c, r) {
+    const b = {};
+    for (const [name, T, per] of BUFS) b[name] = G.shared(T, per === 1 ? c * 2 * r * 4 : per ? c * 2 * per : c * 2);
+    R.adopt(c, r, b);
+    cellDepth = G.shared(Float32Array, c * r);
+    cellKind = G.shared(Uint8Array, c * r);
+    R.cellDepth = cellDepth;
+    R.cellKind = cellKind;
+  };
+  // Take over a set of sample buffers (on a worker: the main thread's shared ones).
+  R.adopt = function (c, r, b) {
     cols = c;
     rows = r;
     SW = c * 2;
     SH = r * 4;
-    const n = SW * SH;
-    sR = new Float32Array(n);
-    sG = new Float32Array(n);
-    sB = new Float32Array(n);
-    sD = new Float32Array(n);
-    sM = new Uint8Array(n);
-    sE = new Int16Array(n);
-    sGl = new Float32Array(n);
-    sF = new Uint8Array(n);
-    zbuf = new Float32Array(SW);
-    cTop = new Float32Array(SW);
-    cBot = new Float32Array(SW);
-    cU = new Float32Array(SW);
-    cTile = new Int32Array(SW);
-    cSide = new Uint8Array(SW);
-    cPN = new Uint8Array(SW);
-    cPT = new Float32Array(SW * K);
-    cPOX = new Float32Array(SW * K);
-    cPOY = new Float32Array(SW * K);
-    cRayLen = new Float32Array(SW);
-    cRdx = new Float32Array(SW);
-    cRdy = new Float32Array(SW);
+    ({ sR, sG, sB, sD, sM, sE, sGl, sF, zbuf, cTop, cBot, cU, cTile, cSide, cPN, cPT, cPOX, cPOY, cRayLen, cRdx, cRdy } = b);
+    R.bufs = b;
     rowDist = new Float32Array(SH);
-    cellDepth = new Float32Array(c * r);
-    cellKind = new Uint8Array(c * r);
+    X0 = 0;
+    X1 = SW;
     R.cols = c;
     R.rows = r;
     R.SW = SW;
     R.SH = SH;
-    R.cellDepth = cellDepth;
-    R.cellKind = cellKind;
+  };
+
+  R.setStrip = function (x0, x1) {
+    X0 = x0;
+    X1 = x1;
+  };
+  // Workers write cell depth into the main thread's shared buffers.
+  R.useShared = function (depth, kind) {
+    cellDepth = R.cellDepth = depth;
+    cellKind = R.cellKind = kind;
   };
 
   // ---- camera ----
@@ -338,7 +348,12 @@
   }
 
   // ---- main world render into the sample buffer ----
-  R.renderWorld = function (game) {
+  // Raycast the walls, floors, ceilings and sky of sample columns [x0, x1). Safe to run on
+  // several threads at once for disjoint strips. Portal offsets seen are added to offs.
+  // Returns the number of sky samples.
+  R.worldPass = function (game, x0, x1, offs) {
+    X0 = x0;
+    X1 = x1;
     const L = game.level, st = L.st, P = game.player, cam = R.cam;
     const W = L.w, H = L.h, tiles = L.tiles, flags = L.flags, plink = L.plink, portals = L.portals, seen = L.seen;
     const time = game.time, frame = game.frame;
@@ -381,11 +396,9 @@
       const dy = y + 0.5 - hz;
       rowDist[y] = dy > 0 ? (camZ * projY) / dy : dy < 0 ? ((Hc - camZ) * projY) / -dy : 1e9;
     }
-    R.offsets.length = 0;
-    R.offsets.push(0, 0);
     let skyCount = 0;
 
-    for (let x = 0; x < SW; x++) {
+    for (let x = X0; x < X1; x++) {
       const camX = (2 * (x + 0.5)) / SW - 1;
       const rdx = dirX + plX * camX, rdy = dirY + plY * camX;
       const rayLen = Math.sqrt(rdx * rdx + rdy * rdy);
@@ -427,8 +440,8 @@
               cPOY[x * K + pn] = offY;
               pn++;
               let found = false;
-              for (let o = 0; o < R.offsets.length; o += 2) if (R.offsets[o] === offX && R.offsets[o + 1] === offY) found = true;
-              if (!found && R.offsets.length < 16) R.offsets.push(offX, offY);
+              for (let o = 0; o < offs.length; o += 2) if (offs[o] === offX && offs[o + 1] === offY) found = true;
+              if (!found && offs.length < 16) offs.push(offX, offY);
             }
           }
         }
@@ -439,9 +452,10 @@
           break;
         }
         const ti = my * W + mx;
-        if (t < 18) {
-          flags[ti] |= F.SEEN;
+        // write only on change: threads share these arrays, and needless stores bounce cache lines
+        if (t < 18 && seen[ti] !== frame) {
           seen[ti] = frame;
+          if (!(flags[ti] & F.SEEN)) flags[ti] |= F.SEEN;
         }
         if (tiles[ti] > 0) {
           hitTile = ti;
@@ -669,31 +683,44 @@
         sM[i] = m;
       }
     }
-    R.skyFraction = skyCount / (SW * SH);
-    // water reflections: mirror the wall in the same (rippled) column
-    if (st.water > 0) {
-      for (let y = 0; y < SH; y++) {
-        const ripple = Math.round(Math.sin(y * 0.55 + time * 2.2) * 1.4);
-        for (let x = 0; x < SW; x++) {
-          const i = y * SW + x;
-          if (sM[i] !== MAT_WATER) continue;
-          const xr = G.clamp(x + ripple, 0, SW - 1);
-          const ry = Math.floor(2 * cBot[xr] - y);
-          if (ry < 0 || ry >= SH) continue;
-          const j = ry * SW + xr;
-          if (sM[j] !== MAT_WALL) continue;
-          sR[i] += sR[j] * 0.45;
-          sG[i] += sG[j] * 0.5;
-          sB[i] += sB[j] * 0.5;
-          if (G.hash2(x, y, (time * 6) | 0) > 0.985) {
-            sR[i] += 0.3;
-            sG[i] += 0.4;
-            sB[i] += 0.4;
-            sGl[i] = 0.3;
-          }
+    return skyCount;
+  };
+
+  // Water mirrors the wall in the same (rippled) column. Runs over the whole screen once every
+  // strip is done, because a ripple reads its neighbouring columns.
+  function waterPass(time) {
+    for (let y = 0; y < SH; y++) {
+      const ripple = Math.round(Math.sin(y * 0.55 + time * 2.2) * 1.4);
+      for (let x = 0; x < SW; x++) {
+        const i = y * SW + x;
+        if (sM[i] !== MAT_WATER) continue;
+        const xr = G.clamp(x + ripple, 0, SW - 1);
+        const ry = Math.floor(2 * cBot[xr] - y);
+        if (ry < 0 || ry >= SH) continue;
+        const j = ry * SW + xr;
+        if (sM[j] !== MAT_WALL) continue;
+        sR[i] += sR[j] * 0.45;
+        sG[i] += sG[j] * 0.5;
+        sB[i] += sB[j] * 0.5;
+        if (G.hash2(x, y, (time * 6) | 0) > 0.985) {
+          sR[i] += 0.3;
+          sG[i] += 0.4;
+          sB[i] += 0.4;
+          sGl[i] = 0.3;
         }
       }
     }
+  }
+
+  R.renderWorld = function (game) {
+    const offs = R.offsets;
+    offs.length = 0;
+    offs.push(0, 0);
+    const sky = G.MT && G.MT.active ? G.MT.world(game) : R.worldPass(game, 0, SW, offs);
+    X0 = 0;
+    X1 = SW;
+    R.skyFraction = sky / (SW * SH);
+    if (game.level.st.water > 0) waterPass(game.time);
     renderSprites(game);
     R.renderViewmodel(game);
   };
@@ -781,7 +808,8 @@
       MO.m = 0;
       MO.e = 1;
       MO.k = 1;
-      o.call(dx - o.shear * (o.h - dy), dy);
+      if (o.vm) o.md(dx, dy, o.p, o.c, o.time, MO);
+      else o.md(dx - o.shear * (o.h - dy), dy, o.e, o.time, MO);
     };
     if (S === 1) {
       for (let yy = 0; yy < Hh; yy++) {
@@ -1005,7 +1033,7 @@
     const dn = Math.max(0.25, s.d - rs), dfar = s.d + rs;
     const yA = Math.floor(cam.hz + (cam.z * cam.projY) / dfar), yB = Math.ceil(cam.hz + (cam.z * cam.projY) / dn);
     const hw = (rs * cam.projX) / dn;
-    const xA = Math.max(0, Math.floor(s.sx - hw)), xB = Math.min(SW - 1, Math.ceil(s.sx + hw));
+    const xA = Math.max(X0, Math.floor(s.sx - hw)), xB = Math.min(X1 - 1, Math.ceil(s.sx + hw));
     const ir = 1 / (rs * rs);
     for (let y = Math.max(0, yA); y <= Math.min(SH - 1, yB); y++) {
       const rd = rowDist[y];
@@ -1062,10 +1090,30 @@
     J.fog[2] = st.fog[2];
   }
 
+  const spritePool = [];
+  let spriteN = 0;
+  function pushSprite(e, ox, oy) {
+    let s = spritePool[spriteN];
+    if (!s) s = spritePool[spriteN] = {};
+    spriteN++;
+    s.e = e;
+    s.ox = ox;
+    s.oy = oy;
+    s.d = prj.d;
+    s.sx = prj.sx;
+    s.sy = prj.sy;
+    s.camX = prj.camX;
+    s.halfW = ((e.w * R.cam.projX) / prj.d) * 0.5;
+    R.sprites.push(s);
+  }
+  const bySprDepth = (a, b) => b.d - a.d;
+  // One reusable raster job, so drawing sprites allocates nothing per frame.
+  const RJ = {};
   function renderSprites(game) {
     const cam = R.cam, P = game.player;
     const list = R.sprites;
     list.length = 0;
+    spriteN = 0;
     const offs = R.offsets;
     const camAng = (x, y) => Math.atan2(cam.y - y, cam.x - x);
     for (const e of game.ents) {
@@ -1079,11 +1127,11 @@
         R.project(e.x - ox, e.y - oy, e.z, prj);
         if (prj.d <= 0.15 || prj.d > 40) continue;
         const halfW = ((e.w * cam.projX) / prj.d) * 0.5;
-        if (prj.sx + halfW < 0 || prj.sx - halfW > SW) continue;
-        list.push({ e, ox, oy, d: prj.d, sx: prj.sx, sy: prj.sy, camX: prj.camX, halfW });
+        if (prj.sx + halfW < X0 - 1 || prj.sx - halfW > X1 + 1) continue;
+        pushSprite(e, ox, oy);
       }
     }
-    list.sort((a, b) => b.d - a.d);
+    list.sort(bySprDepth);
     const time = game.time, st = game.level.st;
     for (let si = 0; si < list.length; si++) {
       const s = list[si], e = s.e, def = e.def;
@@ -1100,11 +1148,12 @@
       // columns that pass the depth / portal test
       const spH = (e.h * cam.projY) / s.d;
       const bottom = s.sy, top = bottom - spH;
-      const x0 = Math.max(0, Math.floor(s.sx - s.halfW)), x1 = Math.min(SW - 1, Math.ceil(s.sx + s.halfW));
+      const x0 = Math.max(X0, Math.floor(s.sx - s.halfW)), x1 = Math.min(X1 - 1, Math.ceil(s.sx + s.halfW));
+      if (x1 < x0) continue;
       let anyCol = false;
       for (let x = x0 - 1; x <= x1 + 1; x++) {
         let ok = 0;
-        if (x >= 0 && x < SW && s.d < zbuf[x]) {
+        if (x >= X0 && x < X1 && s.d < zbuf[x]) {
           const pn = cPN[x];
           if (pn) {
             let sox = 0, soy = 0;
@@ -1146,23 +1195,42 @@
       const hitK = e.hitT > 0 ? e.hitT / 0.22 : 0;
       const shear = (e.lean || 0) * hitK * 0.25 + (def.sway ? Math.sin(time * 1.3 + e.id) * def.sway : 0);
       const sxw = e.w / (2 * s.halfW), syw = e.h / spH;
-      const ox = s.sx, oy = top;
-      const ee = e, md = def.model;
-      const drawn = raster({
-        x0, x1, y0: Math.max(0, Math.floor(top)), y1: Math.min(SH - 1, Math.ceil(bottom)),
-        ox: ox, oy: oy, sxw, syw, shear, h: e.h, rot: false,
-        call: (X, Y) => md(X, Y, ee, time, MO),
-        mats: def.mats, thick: def.thick, depth: s.d, time, e, dieT: e.dieT, spawnT: e.spawnT,
-        flash: e.flash > 0 ? Math.min(1, e.flash * 9) : 0, glow: def.glow, ground: (e.z || 0) < 0.05 && def.kind !== 'pickup', cel: !!def.cel,
-        stride: s.halfW > 34 || spH > 120 ? 3 : s.halfW > 12 || spH > 50 ? 2 : 1,
-        idx: si, ember: def.blood ? [def.blood[0] * 2 + 0.6, def.blood[1] * 2 + 0.3, def.blood[2] * 2 + 0.1] : null,
-      });
+      const o = RJ;
+      o.x0 = x0;
+      o.x1 = x1;
+      o.y0 = Math.max(0, Math.floor(top));
+      o.y1 = Math.min(SH - 1, Math.ceil(bottom));
+      o.ox = s.sx;
+      o.oy = top;
+      o.sxw = sxw;
+      o.syw = syw;
+      o.shear = shear;
+      o.h = e.h;
+      o.rot = false;
+      o.vm = false;
+      o.md = def.model;
+      o.mats = def.mats;
+      o.thick = def.thick;
+      o.depth = s.d;
+      o.time = time;
+      o.e = e;
+      o.dieT = e.dieT;
+      o.spawnT = e.spawnT;
+      o.flash = e.flash > 0 ? Math.min(1, e.flash * 9) : 0;
+      o.glow = def.glow;
+      o.ground = (e.z || 0) < 0.05 && def.kind !== 'pickup';
+      o.cel = !!def.cel;
+      o.stride = s.halfW > 34 || spH > 120 ? 3 : s.halfW > 12 || spH > 50 ? 2 : 1;
+      o.idx = si;
+      o.ember = def.ember || (def.blood ? (def.ember = [def.blood[0] * 2 + 0.6, def.blood[1] * 2 + 0.3, def.blood[2] * 2 + 0.1]) : null);
+      const drawn = raster(o);
       if (drawn && real) e.seen = true;
     }
   }
 
   // ---- the weapon in your hands, as a lit model in screen space ----
   const VME = { id: 7777, def: { set: 'blocks', crawl: false } };
+  const VMS = { e: VME };
   R.renderViewmodel = function (game) {
     const vm = game.vm, P = game.player;
     if (!vm || !vm.show) return;
@@ -1183,8 +1251,9 @@
       ya = Math.min(ya, sy);
       yb = Math.max(yb, sy);
     }
-    const x0 = Math.max(0, Math.floor(xa)), x1 = Math.min(SW - 1, Math.ceil(xb));
-    for (let x = x0 - 1; x <= x1 + 1; x++) colOk[x + 1] = x >= 0 && x < SW ? 1 : 0;
+    const x0 = Math.max(X0, Math.floor(xa)), x1 = Math.min(X1 - 1, Math.ceil(xb));
+    if (x1 < x0) return;
+    for (let x = x0 - 1; x <= x1 + 1; x++) colOk[x + 1] = x >= X0 && x < X1 ? 1 : 0;
     const L = game.level, st = L.st;
     J.lights = 0;
     L.light(P.x, P.y, lt);
@@ -1209,15 +1278,40 @@
     J.rim[2] = st.ink ? 0.03 : st.accent[2] * 0.18;
     J.fog[0] = J.fog[1] = J.fog[2] = 0;
     J.fogK = 1;
-    R.sprites.push({ e: VME });
-    const idx = R.sprites.length - 1;
-    const md = model.model;
-    raster({
-      x0, x1, y0: Math.max(0, Math.floor(ya)), y1: Math.min(SH - 1, Math.ceil(yb)),
-      ox: px, oy: py, sxw: 1 / hs, syw: 1 / vs, shear: 0, h: 0, rot: true, cr, sr,
-      call: (X, Y) => md(X, Y, P, c, time, MO),
-      mats: model.mats, thick: 0.05, depth: 0.05, time, e: null, glow: 1, ground: false, idx, stride: 2,
-    });
+    R.sprites.push(VMS);
+    const o = RJ;
+    o.x0 = x0;
+    o.x1 = x1;
+    o.y0 = Math.max(0, Math.floor(ya));
+    o.y1 = Math.min(SH - 1, Math.ceil(yb));
+    o.ox = px;
+    o.oy = py;
+    o.sxw = 1 / hs;
+    o.syw = 1 / vs;
+    o.shear = 0;
+    o.h = 0;
+    o.rot = true;
+    o.cr = cr;
+    o.sr = sr;
+    o.vm = true;
+    o.md = model.model;
+    o.p = P;
+    o.c = c;
+    o.mats = model.mats;
+    o.thick = 0.05;
+    o.depth = 0.05;
+    o.time = time;
+    o.e = null;
+    o.dieT = 0;
+    o.spawnT = 0;
+    o.flash = 0;
+    o.glow = 1;
+    o.ground = false;
+    o.cel = false;
+    o.idx = R.sprites.length - 1;
+    o.stride = 2;
+    o.ember = null;
+    raster(o);
   };
   // ---- convert samples into glyph cells ----
   function put(D_, ci, g, r, gg, b, br, bg, bb, gl) {
@@ -1297,8 +1391,9 @@
     const setFar = sets[st.farSet] || sets.braille, setSky = sets[st.skySet] || sets.braille;
     const mixed = st.wallSet === 'mixed';
     const W = L.w;
+    const cx0 = X0 >> 1, cx1 = X1 >> 1;
     for (let cy = 0; cy < rows; cy++) {
-      for (let cx = 0; cx < cols; cx++) {
+      for (let cx = cx0; cx < cx1; cx++) {
         const ci = cy * cols + cx;
         const s0 = cy * 4 * SW + cx * 2;
         let entN = 0, entMask = 0, wallN = 0, skyN = 0, flN = 0, ceN = 0;

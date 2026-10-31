@@ -118,6 +118,12 @@
     },
   };
 
+  // Shared memory is only available when the page is cross-origin isolated (the desktop app,
+  // or serve.js). Then the renderer can split each frame across worker threads.
+  G.SAB = typeof SharedArrayBuffer !== 'undefined' && !!self.crossOriginIsolated;
+  G.shared = (Type, n) => new Type(G.SAB ? new SharedArrayBuffer(n * Type.BYTES_PER_ELEMENT) : n);
+
+  G.desktop = typeof navigator !== 'undefined' && / Electron\//.test(navigator.userAgent);
   G.params = new URLSearchParams(location.search);
   G.debug = G.params.has('debug');
 })();

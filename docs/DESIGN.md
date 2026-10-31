@@ -75,6 +75,14 @@ text, and the thing beneath it is erasing it.
 ## Technical summary
 
 - **Grid:** about 160x50 cells at 1280x720 with medium glyphs, so the world is sampled at 320x200.
+  The grid is capped at 300x110 cells. Under automatic resolution, glyphs grow until the grid fits a cell
+  budget: 13,000 cells on one thread, up to 2.6 times that with render threads.
+- **Threads:** with shared memory (cross-origin isolation from the desktop app's `app://` protocol or
+  `serve.js`), the world raycast runs as vertical strips claimed from an atomic counter by up to seven
+  workers plus the main thread. A claim packs a frame generation with the strip index, so a late worker
+  can never take a strip of a newer frame. Shared arrays are only written when a value changes, to avoid
+  cache-line traffic between cores. Water reflections read neighbouring columns, so they run after the
+  strips join. If a strip stalls for 400 ms, rendering falls back to one thread for good.
 - **Raycasting:** DDA with an edge-portal table (`plink`). Each column records its portal crossings, so
   floors, ceilings and sprites beyond a portal are drawn in the right space. Mirror rooms repeat infinitely.
 - **Glyph selection:** each style builds a 256-entry shape table offline. At runtime every cell computes
@@ -109,7 +117,11 @@ text, and the thing beneath it is erasing it.
 
 - **CPU cost of per-sample raycasting.** Lightmap samples are shared across row pairs. Dynamic lights
   are culled per tile with bitmasks, and the sky is a lazily refreshed cached panorama. There are no
-  per-frame allocations in the hot loops, and glyph size is a player option.
+  per-frame allocations in the hot loops. The raycast is spread over every core where shared memory is
+  available, and automatic resolution keeps the grid within what the CPU can draw.
+- **Browsers without cross-origin isolation.** Pages opened from disk or plain static hosts get no
+  shared memory, so they render on one thread with a smaller cell budget. The desktop app and `serve.js`
+  set the required headers.
 - **Readability under corruption.** Creature cells are exempt, threats have minimum brightness,
   and a reduce-flashing option exists.
 - **Font variance across platforms.** Only ASCII comes from the system font; blocks, braille, box-drawing,

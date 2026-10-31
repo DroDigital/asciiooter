@@ -12,14 +12,14 @@
       this.w = w;
       this.h = h;
       this.st = st;
-      this.tiles = new Uint8Array(w * h).fill(st.mats[0]);
-      this.flags = new Uint8Array(w * h);
+      this.tiles = G.shared(Uint8Array, w * h).fill(st.mats[0]);
+      this.flags = G.shared(Uint8Array, w * h);
       this.room = new Int16Array(w * h).fill(-1);
-      this.plink = new Int16Array(w * h * 4).fill(-1);
+      this.plink = G.shared(Int16Array, w * h * 4).fill(-1);
       this.portals = [];
-      this.lm = new Float32Array(w * h * 3);
+      this.lm = G.shared(Float32Array, w * h * 3);
       this.flow = new Int16Array(w * h).fill(32767);
-      this.seen = new Uint32Array(w * h);
+      this.seen = G.shared(Uint32Array, w * h);
       this.text = new Array(w * h);
       this.rooms = [];
       this.lights = [];
@@ -203,6 +203,7 @@
 
     // Stains on floors and walls. A decal is stored in every tile its circle touches.
     addDecal(dc) {
+      this.dver = (this.dver || 0) + 1;
       const W = this.w;
       const x0 = Math.max(0, Math.floor(dc.x - dc.r)), x1 = Math.min(W - 1, Math.floor(dc.x + dc.r));
       const y0 = Math.max(0, Math.floor(dc.y - dc.r)), y1 = Math.min(this.h - 1, Math.floor(dc.y + dc.r));
@@ -221,6 +222,7 @@
       if (this.decals.length > 360) this.removeDecal(this.decals[0]);
     }
     removeDecal(dc) {
+      this.dver = (this.dver || 0) + 1;
       for (const i of dc.tiles) {
         const list = this.dtile[i];
         const k = list.indexOf(dc);

@@ -1,0 +1,54 @@
+{
+  "name": "asciiooter",
+  "productName": "ASCIIOOTER",
+  "version": "1.1.0",
+  "description": "A cosmic-horror roguelite shooter rendered entirely in text.",
+  "main": "desktop/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "serve": "node serve.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.asciiooter.game",
+    "productName": "ASCIIOOTER",
+    "files": [
+      "index.html",
+      "src/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.action-games"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Game"
+    }
+  }
+}

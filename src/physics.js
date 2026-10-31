@@ -188,8 +188,8 @@
   const WALL_HP = { 1: 260, 2: 210, 3: 120, 4: 150, 5: 170, 6: 95, 7: 320, 8: 180, 9: 190, 10: 110 };
   Ph.initWalls = function (L) {
     const W = L.w, H = L.h;
-    L.whp = new Float32Array(W * H);
-    L.wmax = new Float32Array(W * H);
+    L.whp = G.shared(Float32Array, W * H);
+    L.wmax = G.shared(Float32Array, W * H);
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
         const i = y * W + x;
