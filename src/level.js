@@ -356,7 +356,9 @@
       if (lib2) lib2.type = 'library';
     }
     // a mirror room: its east and west walls are the same doorway
-    if (FL.s >= 1 || rng.chance(0.5)) {
+    // (the Folded Geometry is full of them)
+    for (let k = 0; k < (st.portals || 1); k++) {
+      if (!(FL.s >= 1 || rng.chance(0.5))) break;
       const mr = take((r) => r.shape === 'rect' && r.w >= 6 && r.h >= 5);
       if (mr) makeMirror(L, mr) ? (mr.type = 'mirror') : pool.push(mr);
     }
@@ -549,11 +551,11 @@
   }
 
   function genArena(fi, FL, st, rng, opts) {
-    const unw = FL.boss === 'unwritten';
-    const W = unw ? 48 : 44, H = W;
+    const unw = FL.boss === 'unwritten', eye = FL.boss === 'oculus';
+    const W = unw ? 48 : eye ? 46 : 44, H = W;
     const L = new Level(W, H, st);
     L.fi = fi;
-    const cx = W / 2, cy = unw ? 22 : 20, R = unw ? 15 : 13;
+    const cx = W / 2, cy = unw || eye ? 22 : 20, R = unw ? 15 : eye ? 14 : 13;
     L.arena = { cx, cy, r: R };
     const room = { id: 0, x: Math.floor(cx - R), y: Math.floor(cy - R), w: R * 2, h: R * 2, cx: Math.floor(cx), cy: Math.floor(cy), type: 'arena', shape: 'round' };
     L.rooms.push(room);
@@ -573,7 +575,8 @@
     for (let i = 0; i < W * H; i++) if (L.tiles[i]) L.tiles[i] = st.mats[Math.floor(G.noise2((i % W) * 0.2, (i / W) * 0.2, nseed) * st.mats.length) % st.mats.length];
     for (let i = 0; i < W * H; i++) if (L.tiles[i] === M.INSCRIBED || L.tiles[i] === M.VOID) L.text[i] = inscription(rng);
     // pillar ring
-    const pr = unw ? 6 : 8.5, np = unw ? 6 : 8;
+    // the Oculus's arena is all cover: you live behind its pillars
+    const pr = unw ? 6 : eye ? 7.5 : 8.5, np = unw ? 6 : eye ? 10 : 8;
     const ringA = [], ringB = [];
     for (let k = 0; k < np; k++) {
       const a = (k / np) * G.TAU + 0.3, a2 = a + Math.PI / np;
@@ -596,6 +599,13 @@
         const a = (k / 4) * G.TAU;
         sp.push({ type: 'seal', x: cx + Math.cos(a) * 10, y: cy + Math.sin(a) * 10 });
       }
+    } else if (FL.boss === 'orthogon' || eye) {
+      sp.push({ type: FL.boss, x: cx, y: cy });
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * G.TAU + Math.PI / 4;
+        L.lights.push({ x: cx + Math.cos(a) * (R - 3), y: cy + Math.sin(a) * (R - 3), rad: 7, i: 0.8, c: eye ? [1, 0.25, 0.3] : [0.5, 0.9, 1] });
+      }
+      if (!eye) for (let i = 0; i < W * H; i++) if (L.tiles[i] === 0 && Math.hypot((i % W) + 0.5 - cx, Math.floor(i / W) + 0.5 - cy) < R) L.flags[i] |= F.SKY;
     } else {
       sp.push({ type: 'redactor', x: cx, y: cy - 4 });
       for (let k = 0; k < 4; k++) {

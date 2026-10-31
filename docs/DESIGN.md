@@ -8,6 +8,10 @@ text, and the thing beneath it is erasing it.
 
 ## Pillars
 
+0. **Transcendence.** The descent starts in a library, the most familiar place a reader knows, and
+   leaves it. Every stratum after the Ossuary is further from anything that was ever written:
+   geometry that folds, light that splits, and the inside of the eye that has been watching.
+
 1. **Awe through scale.** Skylights open onto a sky beneath the world, where an eye the size of a
    city slowly turns. In the final arena it fills the sky.
 2. **Dread through rules, not jump scares.** Every creature obeys an alien rule the player learns,
@@ -29,6 +33,9 @@ text, and the thing beneath it is erasing it.
 | Drowned stone | ANSI quadrant blocks | heavy, wet, two-tone |
 | Ossuary | dense ASCII ramp | bone dust |
 | Choir Vault | box-drawing | pipes, ribs, cathedral tracery |
+| Folded Geometry | box-drawing wireframes, self-lit, on a braille grid floor | space reduced to its edges |
+| Prism Abyss | bold ASCII walls in sliding spectral bands, mirror floors | light coming apart |
+| Inside of the Eye | alien sigils over veined flesh; walls of eyes that blink | nothing here was ever meant to be read |
 | Lacuna | ink mode, a random style per wall | the page itself is failing |
 | Creatures | their own alphabet (sigils, blocks, braille, box) | the incomprehensible is written differently |
 | Low lucidity | environment cells drift into sigils | the world mis-reads itself |
@@ -70,6 +77,14 @@ text, and the thing beneath it is erasing it.
 | Candlewick Wraith | orbits, dives through you leaving fire; explodes on death | kill it at range |
 | Ink Golem | book-plate armour, floor slam, thrown debris | dash through the slam; break the plates |
 | The Redactor | blacks out bands of the screen, fires fans, summons, blinks | read the gaps between the moving bars |
+| Tesseract | invulnerable while folded flat; unfolds and fires along the four right angles | stand off-axis; strike while open |
+| Recursion | divides into two smaller, faster copies on death, three generations deep | blasts end the line |
+| Refractor | heals and hardens in lamplight; three colours converge where you stood | lantern off; keep moving |
+| Chromaghast | walks as three coloured ghosts; false ones scream light when struck | find the one with a shadow |
+| Oculoid | fires only after holding your gaze; its back is an armoured lid | break line of sight; strike its pupil |
+| Gnasher | swims under the floor; a closing ring of teeth marks where it rises | step out of the ring, punish it while up |
+| The Orthogon | wounded only while open; right-angled beams that later turn; it summons geometry | the diagonals, the pillars, the open window |
+| The Oculus | wounded only while it stares; its gaze burns, its tears fall on you, it blinks the world shut | hide from the gaze, strike the stare |
 | The Unwritten | four seals shield the heart; rains omens, rings of notes; the page collapses | break the seals, then the heart |
 
 ## Technical summary
@@ -106,7 +121,15 @@ text, and the thing beneath it is erasing it.
 - **Effects:** sparks, smoke, ink droplets that become stains, rings, perspective tracer lines, contact
   shadows, light spilled by creatures, and ambient particles for each stratum, all depth-tested against the glyph grid.
 - **Lighting:** a baked line-of-sight lightmap with bilinear sampling, a lantern falloff table,
-  and up to about 12 dynamic lights (muzzle flash, projectiles, beams, explosions).
+  and up to about 12 dynamic lights (muzzle flash, projectiles, beams, explosions). Wall and floor
+  patterns can emit their own light (wireframes, veins, irises).
+- **Dark sight:** exposure adapts to the measured scene brightness with a shoulder curve (c*k / (1 + (k-1)*c)),
+  so shadows lift while highlights hold. In dark cells, structural edges (wall/floor seams, depth
+  jumps) are drawn as chalk lines, nearby floor shows its tile grid, and a screen-space overlay places
+  depth-tested beacons over usable things and edge markers toward unseen hunters.
+- **Dimension effects:** a 4D tesseract sky (vertices rotated in four planes and projected once per sky
+  refresh), aurora and iris skies, mirror floors in the reflection pass, a heartbeat that drives the
+  Eye's breathing walls, and eyelids that close over the screen when the Oculus blinks.
 - **Determinism:** levels come from `hash(seed phrase + floor)`. Combat randomness is separate.
 - **Audio:** WebAudio graphs per effect, a convolution reverb from a generated impulse, and a drone
   bed whose tritone voice rises as lucidity falls. A combat pulse follows threat; a heartbeat

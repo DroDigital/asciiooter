@@ -7,8 +7,10 @@ resolution and redrawn every frame as glyphs. Each stratum is written in a diffe
 text-art style: ASCII, ANSI blocks, braille, box-drawing and two procedurally generated
 alien alphabets. Sound is synthesized live.
 
-You are a Reader of the Order of the Lamp, descending ten floors through five strata
-toward the Lacuna: the hole in the text beneath the world.
+You are a Reader of the Order of the Lamp, descending thirteen floors through eight strata
+toward the Lacuna: the hole in the text beneath the world. The descent begins in a library and
+leaves it behind: below the bones, the world stops being written and becomes geometry, light, and
+finally the inside of an eye.
 
 ## Play
 
@@ -63,12 +65,19 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
 
 ## What is in it
 
-- **Five strata, ten floors, two bosses.** The Archive (amber ASCII bookshelves), the Drowned
-  Stacks (ANSI block art over reflective water, the sea visible from below), the Ossuary of
-  Letters (fine ASCII bone walls), the Choir Vault (box-drawing cathedrals open to a sky where
-  a colossal eye turns), and the Lacuna (ink on white paper, every wall in a different
-  alphabet). At the bottom of the Ossuary waits the Redactor; at the bottom of everything, the Unwritten.
-- **21 creatures with rules you learn**, cel-shaded and drawn in their own alphabets:
+- **Eight strata, thirteen floors, four bosses**, each stratum stranger than the last:
+  1. **The Archive:** amber ASCII bookshelves.
+  2. **The Drowned Stacks:** ANSI block art over reflective water, with the sea visible from below.
+  3. **The Ossuary of Letters:** fine ASCII bone walls. *The Redactor* waits at the bottom.
+  4. **The Folded Geometry:** self-lit wireframe rooms on a glowing grid, folded into each other by
+     portals, under a sky where a mountain-sized tesseract turns in four dimensions. *The Orthogon* waits at the bottom.
+  5. **The Choir Vault:** box-drawing cathedrals open to a sky where a colossal eye turns.
+  6. **The Prism Abyss:** walls of split light whose colours slide over every surface, mirror
+     floors that reflect them, and aurora ribbons in the sky.
+  7. **The Inside of the Eye:** veined flesh that breathes with a heartbeat, walls full of eyes
+     that stare back and blink, and an iris for a sky. *The Oculus* waits at the bottom.
+  8. **The Lacuna:** ink on white paper, every wall in a different alphabet. *The Unwritten* waits at the bottom of everything.
+- **27 creatures with rules you learn**, cel-shaded and drawn in their own alphabets:
   - *Watchers* move only when unseen.
   - *Hollows* are visible only in darkness.
   - *Lurkers* exist only in the corner of your eye.
@@ -89,6 +98,17 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
   - *Mirror Knights* reflect shots from the front and charge with a lance.
   - *Candlewick Wraiths* dive through you leaving fire, and burst into flame when they die.
   - *Ink Golems* shed their book-plate armour as they're hurt, slam the floor, and throw torn-off debris.
+  - *Tesseracts* are rotating 4D wireframes, invulnerable while folded flat; unfolded, they fire along right angles.
+  - *Recursions* are living Sierpinski triangles that divide into two smaller, faster copies when killed, unless a blast ends the line.
+  - *Refractors* are prisms that feed on your lantern light; their three colours converge where you stood.
+  - *Chromaghasts* walk as three coloured ghosts. Only the true one casts a shadow; striking a false one makes it scream light into your mind.
+  - *Oculoids* are floating eyes that fire only after holding your gaze. Their backs are closed lids.
+  - *Gnashers* swim beneath the floor; a closing ring of teeth marks where they will rise.
+- **Four bosses:**
+  - *The Redactor* blacks out the screen in moving bars.
+  - *The Orthogon* is a god of corners, wounded only while its faces are open, with beams that keep to right angles and later turn.
+  - *The Oculus* can be wounded only while it stares; its burning gaze is broken by pillars, its tears fall where you stand, and at the end it blinks the world shut.
+  - *The Unwritten* hides behind four seals.
 - **Physics and destruction.**
   - Particles collide with walls, floors and ceilings, bounce, tumble and come to rest.
   - Explosions shove everything: particles, props, oil casks, and creatures, which fly through the air and land.
@@ -118,8 +138,12 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
   - A Codex of creatures, 24 lore fragments and a hidden true ending.
   - Fallen Readers leave remnants on the floor where they died, for the next Reader to find.
   - Seeds are phrases (`"ASHEN CHOIR WAITS"`). Speak one to replay a run, or play the same Daily Rite as everyone else.
+- **Dark sight.** Your eyes adapt to the dark: shadows lift without washing out the light. When light
+  fails, the edges of walls and doorways are drawn as pale chalk lines and nearby floor shows its tiles.
+  Pickups, braziers, lecterns, altars and the well carry soft beacons, and markers at the screen edge
+  show hunting creatures you can't see. Watchers, Hollows, Lurkers and phantasms are exempt, so their rules hold.
 - **Accessibility:** a reduce-flashing option, a madness-distortion slider, CRT effects can be
-  turned off, glyph size settings (bigger glyphs render faster), FOV and invert look.
+  turned off, glyph size settings (bigger glyphs render faster), FOV, invert look, brightness, and dark sight.
 - **Performance options:** render threads, automatic resolution (glyphs grow until the grid fits what your
   CPU can draw at full frame rate; FULL turns this off), and sharpness (the pixel density cap on
   high-DPI screens). `SHOW FRAME RATE` displays the frame cost.
@@ -184,6 +208,7 @@ On a 4-core machine at 1920x1080, a threaded frame costs 30–50% less than a si
 | `src/entities.js` | creature behaviours, bosses, pickups, props |
 | `src/models.js` | distance-field models, materials, lights and small effects for everything, plus the held weapons |
 | `src/bestiary.js` | the twelve newer creatures (models and movesets), mines, thrown debris, spores and oil casks |
+| `src/dimensions.js` | the creatures and bosses of the Folded Geometry, the Prism Abyss and the Inside of the Eye |
 | `src/physics.js` | colliding particles, impulses, creatures shattering into fragments, destructible walls, pushable bodies, hazards and shockwaves |
 | `src/player.js` | movement, dash, lantern, lucidity, weapons |
 | `src/game.js` | runs, combat, effects, director, screens, saving |
@@ -198,7 +223,7 @@ Design notes are in [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Debug URL parameters
 
-`index.html?debug&floor=6` starts directly on a floor (0–9). `&third` starts in third person,
+`index.html?debug&floor=6` starts directly on a floor (0–12). `&third` starts in third person,
 `&luc=20` sets lucidity, `&god` disables damage and `&reader=heretic` picks a Reader.
 `&threads=2` sets the number of render worker threads (0 turns them off). In the desktop app,
 `npm start -- --game-debug` adds `?debug`, and `--devtools` lets F12 open the developer tools.

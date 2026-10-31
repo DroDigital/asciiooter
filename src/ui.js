@@ -427,6 +427,22 @@
     }
   };
 
+  // The Oculus blinks, and you are inside the eye: lids of flesh close over the screen.
+  UI.eyelids = function (g, k) {
+    const cols = C(), rows = Rw() - 3, half = rows / 2;
+    for (let x = 0; x < cols; x++) {
+      const u = (x - cols / 2) / (cols / 2);
+      const reach = Math.ceil(half * k * (1 - 0.35 * u * u) + (k > 0.98 ? 1 : 0));
+      for (let j = 0; j < reach; j++) {
+        const edge = j === reach - 1;
+        const c = edge ? [0.55, 0.12, 0.16] : [0.16 + 0.04 * Math.sin(x * 0.7 + j), 0.03, 0.04];
+        const gl = edge ? GL.ch(j % 2 ? '~' : '-') : 0;
+        UI.put(x, j, gl, c, [0.12, 0.02, 0.03]);
+        UI.put(x, rows - 1 - j, gl, c, [0.12, 0.02, 0.03]);
+      }
+    }
+  };
+
   // Margins whisper; and they point to the lie in the wall.
   UI.whispers = function (g) {
     for (const w of g.whispers) {

@@ -6,7 +6,7 @@
   const D = (G.Data = {});
 
   // Wall materials.
-  const M = (D.MAT = { BRICK: 1, INSCRIBED: 2, SHELVES: 3, FLESH: 4, BONE: 5, CRYSTAL: 6, STONE: 7, VOID: 8, PILLAR: 9, KELP: 10 });
+  const M = (D.MAT = { BRICK: 1, INSCRIBED: 2, SHELVES: 3, FLESH: 4, BONE: 5, CRYSTAL: 6, STONE: 7, VOID: 8, PILLAR: 9, KELP: 10, LATTICE: 11, PRISM: 12, MIRROR: 13, VEIN: 14, EYES: 15 });
 
   // Tile flags.
   D.F = { SKY: 1, WATER: 2, SECRET: 4, LORE: 8, SHIFT: 16, SEEN: 32, ROOM: 64, ARENA: 128 };
@@ -15,7 +15,7 @@
   // the deeper you go, the stranger the alphabet reality is written in.
   D.STRATA = [
     {
-      id: 0, numeral: 'I', name: 'THE ARCHIVE', sub: 'where the world keeps its records',
+      key: 'archive', id: 0, numeral: 'I', name: 'THE ARCHIVE', sub: 'where the world keeps its records',
       ceilH: 1.35, fog: [0, 0, 0], fogD: 0.075, ambient: [0.05, 0.036, 0.022], lamp: [1.0, 0.76, 0.42],
       wallSet: 'ascii', floorSet: 'ascii', ceilSet: 'braille', farSet: 'braille', farDist: 11, skySet: 'braille',
       mats: [M.SHELVES, M.SHELVES, M.BRICK, M.INSCRIBED], floorPat: 'planks', ceilPat: 'beams',
@@ -26,7 +26,7 @@
       props: ['books', 'candles', 'books'],
     },
     {
-      id: 1, numeral: 'II', name: 'THE DROWNED STACKS', sub: 'the ink ran, and the books learned to speak in water',
+      key: 'drowned', id: 1, numeral: 'II', name: 'THE DROWNED STACKS', sub: 'the ink ran, and the books learned to speak in water',
       ceilH: 1.5, fog: [0.0, 0.03, 0.04], fogD: 0.09, ambient: [0.02, 0.05, 0.06], lamp: [0.75, 0.95, 0.9],
       wallSet: 'blocks', floorSet: 'braille', ceilSet: 'blocks', farSet: 'braille', farDist: 10, skySet: 'braille',
       mats: [M.STONE, M.KELP, M.SHELVES, M.STONE], floorPat: 'stone', ceilPat: 'drip',
@@ -37,7 +37,7 @@
       props: ['coral', 'books', 'candles'],
     },
     {
-      id: 2, numeral: 'III', name: 'THE OSSUARY OF LETTERS', sub: 'here the letters are bones, and the bones are tired',
+      key: 'ossuary', id: 2, numeral: 'III', name: 'THE OSSUARY OF LETTERS', sub: 'here the letters are bones, and the bones are tired',
       ceilH: 1.0, fog: [0.035, 0.0, 0.0], fogD: 0.1, ambient: [0.05, 0.02, 0.02], lamp: [1.0, 0.86, 0.78],
       wallSet: 'asciiFine', floorSet: 'ascii', ceilSet: 'asciiFine', farSet: 'braille', farDist: 9, skySet: 'braille',
       mats: [M.BONE, M.BONE, M.BRICK, M.INSCRIBED], floorPat: 'tiles', ceilPat: 'plain',
@@ -48,7 +48,18 @@
       props: ['bones', 'candles', 'bones'],
     },
     {
-      id: 3, numeral: 'IV', name: 'THE CHOIR VAULT', sub: 'a cathedral for the voices of the erased',
+      key: 'folded', id: 3, numeral: 'IV', name: 'THE FOLDED GEOMETRY', sub: 'below the bones, the rooms stop agreeing on how many sides they have',
+      ceilH: 2.0, fog: [0.0, 0.0, 0.015], fogD: 0.055, ambient: [0.02, 0.025, 0.04], lamp: [0.85, 0.95, 1.0],
+      wallSet: 'box', floorSet: 'braille', ceilSet: 'box', farSet: 'braille', farDist: 14, skySet: 'braille',
+      mats: [M.LATTICE, M.LATTICE, M.MIRROR, M.LATTICE], floorPat: 'grid', ceilPat: 'grid',
+      wall: { [M.LATTICE]: hex('#7fe8ff'), [M.MIRROR]: hex('#b8c8ff'), [M.PILLAR]: hex('#ffffff'), [M.INSCRIBED]: hex('#9fd8ff') },
+      floor: hex('#5fd0ff'), ceil: hex('#8f7fff'), sky: 'polytope', skyChance: 0.45, water: 0,
+      accent: hex('#7fe8ff'), root: 46.2, ink: false, portals: 3, aberr: 0.002,
+      enemies: { tesseract: 3, recursion: 3, lurker: 1.2, cipher: 1.6, echo: 1.2, hound: 1.4 },
+      props: ['crystals'],
+    },
+    {
+      key: 'choir', id: 4, numeral: 'V', name: 'THE CHOIR VAULT', sub: 'a cathedral for the voices of the erased',
       ceilH: 3.2, fog: [0.03, 0.0, 0.06], fogD: 0.05, ambient: [0.04, 0.025, 0.07], lamp: [0.9, 0.8, 1.0],
       wallSet: 'box', floorSet: 'blocks', ceilSet: 'braille', farSet: 'braille', farDist: 14, skySet: 'braille',
       mats: [M.CRYSTAL, M.PILLAR, M.STONE, M.FLESH], floorPat: 'marble', ceilPat: 'vault',
@@ -59,7 +70,29 @@
       props: ['crystals', 'candles'],
     },
     {
-      id: 4, numeral: 'V', name: 'THE LACUNA', sub: 'the hole in the text beneath the world',
+      key: 'prism', id: 5, numeral: 'VI', name: 'THE PRISM ABYSS', sub: 'past the cathedral, light comes apart into all the colours it was hiding',
+      ceilH: 2.6, fog: [0.03, 0.015, 0.05], fogD: 0.05, ambient: [0.05, 0.04, 0.07], lamp: [1.0, 0.95, 1.0],
+      wallSet: 'asciiBold', floorSet: 'blocks', ceilSet: 'braille', farSet: 'braille', farDist: 14, skySet: 'braille',
+      mats: [M.PRISM, M.PRISM, M.MIRROR, M.CRYSTAL], floorPat: 'facets', ceilPat: 'facets',
+      wall: { [M.PRISM]: hex('#ffffff'), [M.MIRROR]: hex('#c8b8ff'), [M.CRYSTAL]: hex('#ff9cf0'), [M.PILLAR]: hex('#fff0ff'), [M.INSCRIBED]: hex('#ffd8ff') },
+      floor: hex('#2a2440'), ceil: hex('#1a1030'), sky: 'aurora', skyChance: 0.55, water: 0, mirror: 0.55,
+      accent: hex('#ff7fe8'), root: 52.9, ink: false, aberr: 0.004, sat: 1.25,
+      enemies: { refractor: 3, chromaghast: 2.4, moth: 1.6, wraith: 1.6, knight: 1.2, echo: 1, tesseract: 1 },
+      props: ['crystals', 'candles'],
+    },
+    {
+      key: 'eye', id: 6, numeral: 'VII', name: 'THE INSIDE OF THE EYE', sub: 'something has been looking at the world for a very long time, and you are behind it now',
+      ceilH: 1.9, fog: [0.07, 0.0, 0.012], fogD: 0.075, ambient: [0.07, 0.02, 0.025], lamp: [1.0, 0.85, 0.8],
+      wallSet: 'sigilA', floorSet: 'asciiFine', ceilSet: 'sigilB', farSet: 'braille', farDist: 10, skySet: 'braille',
+      mats: [M.VEIN, M.EYES, M.VEIN, M.FLESH], floorPat: 'membrane', ceilPat: 'membrane',
+      wall: { [M.VEIN]: hex('#b0445a'), [M.EYES]: hex('#d88a8a'), [M.FLESH]: hex('#9a3b4a'), [M.PILLAR]: hex('#e0b0a8'), [M.INSCRIBED]: hex('#e8a0a0') },
+      floor: hex('#5a1a24'), ceil: hex('#30080e'), sky: 'iris', skyChance: 0.4, water: 0,
+      accent: hex('#ff3050'), root: 43.6, ink: false, breathe: 0.32,
+      enemies: { oculoid: 3, gnasher: 2.6, broodsac: 1.2, mite: 1, watcher: 1.4, maw: 1, bloom: 1.4, hollow: 1.2 },
+      props: ['bones'],
+    },
+    {
+      key: 'lacuna', id: 7, numeral: 'VIII', name: 'THE LACUNA', sub: 'the hole in the text beneath the world',
       ceilH: 2.2, fog: [0.95, 0.93, 0.89], fogD: 0.06, ambient: [1.02, 1.0, 0.96], lamp: [0.05, 0.05, 0.05],
       wallSet: 'mixed', floorSet: 'braille', ceilSet: 'braille', farSet: 'braille', farDist: 12, skySet: 'braille',
       mats: [M.VOID, M.VOID, M.INSCRIBED, M.PILLAR], floorPat: 'paper', ceilPat: 'plain',
@@ -71,23 +104,29 @@
     },
   ];
 
+  // The descent starts among books and leaves them behind: every stratum after the Ossuary is
+  // a dimension further from anything that was ever written down.
   D.FLOORS = [
-    { s: 0, size: 50, rooms: [9, 12], budget: 7 },
-    { s: 0, size: 54, rooms: [10, 13], budget: 9 },
+    { s: 0, size: 52, rooms: [10, 13], budget: 8 },
     { s: 1, size: 54, rooms: [10, 13], budget: 10 },
-    { s: 1, size: 58, rooms: [11, 14], budget: 12 },
-    { s: 2, size: 58, rooms: [11, 14], budget: 13 },
+    { s: 2, size: 56, rooms: [11, 14], budget: 12 },
     { s: 2, boss: 'redactor' },
-    { s: 3, size: 60, rooms: [11, 14], budget: 15 },
-    { s: 3, size: 62, rooms: [12, 15], budget: 17 },
-    { s: 4, size: 62, rooms: [12, 15], budget: 18 },
-    { s: 4, boss: 'unwritten' },
+    { s: 3, size: 58, rooms: [11, 14], budget: 13 },
+    { s: 3, boss: 'orthogon' },
+    { s: 4, size: 60, rooms: [11, 14], budget: 15 },
+    { s: 5, size: 60, rooms: [11, 14], budget: 16 },
+    { s: 5, size: 62, rooms: [12, 15], budget: 17 },
+    { s: 6, size: 62, rooms: [12, 15], budget: 18 },
+    { s: 6, boss: 'oculus' },
+    { s: 7, size: 62, rooms: [12, 15], budget: 19 },
+    { s: 7, boss: 'unwritten' },
   ];
-  D.RELIC_AFTER = new Set([1, 3, 5, 7]);
+  D.RELIC_AFTER = new Set([1, 3, 5, 7, 9, 11]);
 
   D.COST = {
     wretch: 1, moth: 0.6, watcher: 2, hollow: 1.6, drowned: 1.3, choir: 2.2, echo: 2, lurker: 1.8, maw: 4,
     tome: 0.45, scrivener: 2.4, inkhulk: 6, wraith: 2, bloom: 2.5, hound: 1, cipher: 2.6, bellringer: 2.4, broodsac: 2.8, mite: 0.4, knight: 3.5, hanged: 1.4,
+    tesseract: 2.4, recursion: 2.2, refractor: 2.4, chromaghast: 2.8, oculoid: 2, gnasher: 2.6,
   };
 
   // Weapons. ammo: null (infinite) | 'verse' | 'letters' | 'oil' | 'lucidity'.
@@ -272,9 +311,17 @@
     hanged: { name: 'THE HANGED', epi: 'a reader who stopped reading', rule: 'It waits above. Look up before you walk under.' },
     phantasm: { name: 'PHANTASM', epi: 'a mistake your mind is making', rule: 'Harmless. Their letters fail at the edges. Do not waste your ink.' },
     redactor: { name: 'THE REDACTOR', epi: 'appointed to keep you from certain words', rule: 'It blacks out the world in bars. The bars move - read the gaps.' },
+    tesseract: { name: 'TESSERACT', epi: 'a room that wandered out of itself', rule: 'Folded flat it cannot be hurt. When its faces open it fires along right angles - never stand square to it.' },
+    recursion: { name: 'RECURSION', epi: 'a shape defined in terms of itself', rule: 'Every death divides it, smaller and faster, three generations deep. A blast ends the line.' },
+    refractor: { name: 'REFRACTOR', epi: 'light that learned to want', rule: 'Your lantern feeds it: in lamplight it heals and hardens. Its three colours converge where you stood.' },
+    chromaghast: { name: 'CHROMAGHAST', epi: 'one thing, split three ways by the light', rule: 'Three of it walk, but only the true one casts a shadow. Striking a false one makes it scream light.' },
+    oculoid: { name: 'OCULOID', epi: 'an eye that left to see for itself', rule: 'It fires only after holding your gaze. Its back is a closed lid - strike it face to face, or flank and wait.' },
+    gnasher: { name: 'GNASHER', epi: 'the floor remembered it had a mouth', rule: 'It swims beneath the floor. A ring of teeth marks where it will rise - move before the ring closes.' },
+    orthogon: { name: 'THE ORTHOGON', epi: 'a god that is mostly corners', rule: 'It can only be wounded while its faces are open. Its beams keep to right angles: stand on the diagonals, behind the pillars.' },
+    oculus: { name: 'THE OCULUS', epi: 'the eye that dreamed the library', rule: 'It can only be wounded while it stares. Its gaze burns what it holds - break its line of sight behind the pillars.' },
     unwritten: { name: 'THE UNWRITTEN', epi: 'the shape of where something should be', rule: 'Break the four seals. Then strike the heart before the page empties.' },
   };
-  D.CODEX_ORDER = ['wretch', 'moth', 'tome', 'scrivener', 'hanged', 'watcher', 'hollow', 'drowned', 'bloom', 'broodsac', 'mite', 'hound', 'bellringer', 'choir', 'echo', 'lurker', 'maw', 'cipher', 'knight', 'wraith', 'inkhulk', 'phantasm', 'redactor', 'unwritten'];
+  D.CODEX_ORDER = ['wretch', 'moth', 'tome', 'scrivener', 'hanged', 'watcher', 'hollow', 'drowned', 'bloom', 'broodsac', 'mite', 'hound', 'bellringer', 'choir', 'echo', 'lurker', 'maw', 'cipher', 'knight', 'wraith', 'inkhulk', 'phantasm', 'tesseract', 'recursion', 'refractor', 'chromaghast', 'oculoid', 'gnasher', 'redactor', 'orthogon', 'oculus', 'unwritten'];
 
   D.LORE = [
     'The Archive was not built. It was remembered into place, one shelf at a time, by people who were afraid of forgetting.',
