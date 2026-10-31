@@ -95,6 +95,16 @@
     }
   }
 
+  // lights may carry a reference to the entity they belong to; workers only need the numbers
+  function plainLights(list) {
+    const out = new Array(list.length);
+    for (let i = 0; i < list.length; i++) {
+      const l = list[i];
+      out[i] = { x: l.x, y: l.y, z: l.z, r: l.r, g: l.g, b: l.b, rad: l.rad, i: l.i };
+    }
+    return out;
+  }
+
   function claim(game, tag, n, SW) {
     for (;;) {
       const v = Atomics.load(ctrl, 0);
@@ -128,7 +138,7 @@
     post({
       t: 'frame', gen: MT.gen, n, SW,
       cam: { x: c.x, y: c.y, a: c.a, z: c.z, dirX: c.dirX, dirY: c.dirY, plX: c.plX, plY: c.plY, projX: c.projX, projY: c.projY, hz: c.hz, invDet: c.invDet },
-      cellW: R.cellW, cellH: R.cellH, time: game.time, frame: game.frame, dyn: game.dynLights, warp: game.fx.wallWarp,
+      cellW: R.cellW, cellH: R.cellH, time: game.time, frame: game.frame, dyn: plainLights(game.dynLights), warp: game.fx.wallWarp,
       lantern: !!P.lanternOn, lampR: P.lampRadius(), secret: game.level.secretOpen,
     });
     claim(game, tag, n, SW);

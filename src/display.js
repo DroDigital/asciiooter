@@ -17,6 +17,7 @@ uniform vec2 uAtlasSize; uniform float uPad; uniform float uTime; uniform float 
 uniform float uAberr; uniform float uGlow; uniform float uNoise; uniform float uVig; uniform float uFlash;
 uniform vec3 uFlashCol; uniform float uInvert; uniform vec2 uShake; uniform float uWarp; uniform float uDpr;
 uniform vec4 uWave[4]; uniform float uSat; uniform vec3 uTint; uniform float uSpeed; uniform float uBright;
+uniform vec4 uShaft[2]; uniform vec3 uShaftCol[2];
 in vec2 vUv; out vec4 outColor;
 
 vec3 cellAt(vec2 uv){
@@ -77,6 +78,20 @@ void main(){
     }
     col += gs * uGlow / 14.4;
   }
+  // god rays: bright cells smeared along the line toward each light source
+  for (int s = 0; s < 2; s++) {
+    vec4 sh = uShaft[s];
+    if (sh.z <= 0.001) continue;
+    vec2 dv = sh.xy - uv;
+    float acc = 0.0, w = 1.0;
+    for (int i = 1; i <= 14; i++) {
+      vec4 f = texture(uFg, uv + dv * (float(i) / 14.0) * 0.9);
+      acc += max(0.0, max(f.r, max(f.g, f.b)) - 0.3) * (0.4 + f.a) * w;
+      w *= 0.9;
+    }
+    vec2 da = dv * asp;
+    col += uShaftCol[s] * acc * sh.z * 0.022 / (1.0 + dot(da, da) * 8.0);
+  }
   col *= uBright; // overall brightness (option, default +11%)
   float sl = 0.5 + 0.5 * sin(gl_FragCoord.y * 3.14159 / max(1.0, uDpr));
   col *= 1.0 - uScan * 0.28 * sl;
@@ -98,7 +113,7 @@ void main(){
       this.gl = gl;
       this.cols = 0;
       this.rows = 0;
-      this.fx = { scan: 0.5, curve: 0.04, aberr: 0, glow: 1, noise: 0.025, vig: 0.55, flash: 0, flashCol: [1, 1, 1], invert: 0, shakeX: 0, shakeY: 0, warp: 0, sat: 1, tint: [1, 1, 1], speed: 0, bright: 1.11, waves: new Float32Array(16) };
+      this.fx = { scan: 0.5, curve: 0.04, aberr: 0, glow: 1, noise: 0.025, vig: 0.55, flash: 0, flashCol: [1, 1, 1], invert: 0, shakeX: 0, shakeY: 0, warp: 0, sat: 1, tint: [1, 1, 1], speed: 0, bright: 1.11, waves: new Float32Array(16), shaft: new Float32Array(8), shaftCol: new Float32Array(6) };
       this._init();
     }
 
@@ -260,6 +275,8 @@ void main(){
       gl.uniform3f(u.uTint, f.tint[0], f.tint[1], f.tint[2]);
       gl.uniform1f(u.uSpeed, f.speed);
       gl.uniform1f(u.uBright, f.bright);
+      gl.uniform4fv(u['uShaft[0]'], f.shaft);
+      gl.uniform3fv(u['uShaftCol[0]'], f.shaftCol);
       gl.bindVertexArray(this.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }

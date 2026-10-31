@@ -74,7 +74,15 @@
     }
     damageMul() {
       const madness = (1 - this.luc / 100) * 0.5 * this.mods.gnosis;
-      return this.mods.dmg * this.dmgAnnot * (1 + madness);
+      let k = this.mods.dmg * this.dmgAnnot * (1 + madness) * G.Game.fervorMul();
+      // a perfect dodge writes the next shot in capitals
+      if (this.critNext) {
+        this.critNext = false;
+        k *= 2;
+        G.Game.critT = G.Game.time;
+        G.Game.bigWord('CAPITALS', [1, 0.85, 0.4]);
+      }
+      return k;
     }
     weapon() {
       return D.WEAPONS[this.weapons[this.cur]];
@@ -148,7 +156,15 @@
       const speed = 4.4 * this.mods.speed * (inWater ? 0.8 : 1);
       this.dashCd -= dt;
       this.inv -= dt;
-      if (In.dash() && this.dashCd <= 0) {
+      this.dashAge = (this.dashAge === undefined ? 9 : this.dashAge) + dt;
+      this.eraseT = (this.eraseT || 0) - dt;
+      // input buffering: a dash pressed a moment too early still happens
+      if (In.dash()) this.dashBuf = 0.16;
+      this.dashBuf = (this.dashBuf || 0) - dt;
+      if (this.dashBuf > 0 && this.dashCd <= 0) {
+        this.dashBuf = 0;
+        this.dashAge = 0;
+        this.dodged = false;
         let dx = mx, dy = my;
         if (ml < 0.1) {
           dx = ca;
@@ -231,6 +247,9 @@
       if (In.lastWeapon()) this.select(this.prevW);
       this.cd -= dt;
       this.switchT -= dt;
+      // a click just before the weapon is ready still fires
+      if (In.firePressed() && this.cd > 0) this.fireBuf = 0.15;
+      this.fireBuf = (this.fireBuf || 0) - dt;
       this.recoil = Math.max(0, this.recoil - dt * 5);
       const w = this.weapon();
       this.beaming = false;
@@ -248,7 +267,8 @@
             if (this.charge >= w.charge * 0.98 && this.cd <= 0 && this.canFire(w)) firePalimpsest(g, this, w);
             this.charge = 0;
           }
-        } else if ((w.auto ? In.fire() : In.firePressed() || In.fire()) && this.cd <= 0) {
+        } else if ((w.auto ? In.fire() : In.firePressed() || In.fire() || this.fireBuf > 0) && this.cd <= 0) {
+          this.fireBuf = 0;
           if (this.canFire(w)) {
             FIRE[this.weapons[this.cur]](g, this, w);
             this.cd = w.cd;

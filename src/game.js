@@ -5,7 +5,7 @@
   const G = window.G;
   const D = G.Data, In = G.Input, A = G.Audio, R = G.R, UI = G.UI, E = G.Ent, GL = G.Glyphs;
   const SAVE_KEY = 'asciiooter.save.v1';
-  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false, threads: true, res: 'auto', sharp: 1.5, bright: 1.11, guide: true };
+  const DEFAULT_OPTS = { sens: 1, fov: 90, glyph: 14, master: 0.8, music: 0.7, sfx: 0.9, calm: false, distort: 1, crt: true, invertY: false, third: false, fps: false, threads: true, res: 'auto', sharp: 1.5, bright: 1.11, guide: true, dmgNums: true, shafts: true };
   const lt = [0, 0, 0];
 
   function defaultSave() {
@@ -396,6 +396,16 @@
     if (P.mods.lampDmg && P.lanternOn && this.distP(e) < P.lampRadius()) d *= 1 + P.mods.lampDmg;
     e.hp -= d;
     e.flash = o.tick ? Math.max(e.flash, 0.03) : 0.09;
+    // damage written in the air; rapid ticks on one target add up into one number
+    const nums = this.dmgNums || (this.dmgNums = []);
+    const last = nums.length ? nums[nums.length - 1] : null;
+    if (last && last.e === e && last.t > last.max - 0.22) {
+      last.v += d;
+      last.t = last.max;
+    } else {
+      if (nums.length > 24) nums.shift();
+      nums.push({ e, x: e.x, y: e.y, z: (e.z || 0) + e.h * 0.9, v: d, t: 0.8, max: 0.8, ox: G.rand.range(-1.5, 1.5), crit: this.time - (this.critT || -9) < 0.12 });
+    }
     if (!o.tick || e.hitT <= 0) {
       e.hitT = 0.22;
       const c = this.cam;
@@ -468,7 +478,8 @@
       this.ring(e.x, e.y, 0.03, 0.2, 2.4, 0.5, [1, 0.5, 0.3]);
       this.wave(e.x, e.y, 0.6);
     }
-    let ink = def.ink || 0;
+    if (!def.sub && !o.erase) this.fervorAdd(1);
+    let ink = Math.round((def.ink || 0) * (this.fervor && this.fervor.n >= 3 ? 1 + Math.min(1, this.fervor.n * 0.05) : 1));
     while (ink > 0) {
       const v = Math.min(ink, 4);
       ink -= v;
@@ -571,6 +582,7 @@
 
   Game.hurtPlayer = function (dmg, sx, sy, src) {
     const P = this.player;
+    if (P.alive && this.state === 'play' && P.inv > 0 && P.dashAge < 0.26 && !P.dodged) return this.perfectDodge(sx, sy);
     if (!P.alive || this.state !== 'play' || P.inv > 0 || (G.debug && G.params.has('god'))) return;
     const d = dmg * this.dmgScale * P.mods.dmgTaken;
     P.hp -= d;
@@ -584,6 +596,75 @@
       const k = src ? E.codexKey(src.type) : null;
       this.killPlayer(k && D.CODEX[k] ? D.CODEX[k].name : 'THE DARK');
     }
+  };
+
+  // A blow that would have landed during the first instant of a dash: the world slows, the
+  // dash comes straight back, the mind steadies, and the next shot is written in capitals.
+  Game.perfectDodge = function (sx, sy) {
+    const P = this.player;
+    P.dodged = true;
+    P.dashCd = 0;
+    P.luc = Math.min(100, P.luc + 8);
+    P.critNext = true;
+    this.slowT = 1.1;
+    this.sound('relic');
+    this.flash([0.5, 0.7, 1], 0.25);
+    this.ring(P.x, P.y, 0.5, 0.2, 3, 0.6, [0.6, 0.8, 1], { glyph: GL.id('sym:star') });
+    this.wave(P.x, P.y, 0.8);
+    this.bigWord('UNTOUCHED', [0.6, 0.85, 1]);
+    this.fervorAdd(1);
+  };
+  Game.bigWord = function (text, col) {
+    this.words = this.words || [];
+    this.words.push({ text, col, t: 0.9, max: 0.9 });
+    if (this.words.length > 3) this.words.shift();
+  };
+
+  // ---- fervor: kills that follow quickly on each other build a chain
+  Game.fervorAdd = function (n) {
+    const f = this.fervor || (this.fervor = { n: 0, t: 0, best: 0 });
+    f.n = f.t > 0 ? f.n + n : n;
+    f.t = 4;
+    f.pulse = 1;
+    if (f.n > f.best) f.best = f.n;
+    if (f.n === 5 || f.n === 10 || f.n === 20) {
+      this.bigWord(f.n >= 20 ? 'UNWRITTEN' : f.n >= 10 ? 'FERVENT' : 'FERVOR', [1, 0.6 + f.n * 0.01, 0.3]);
+      this.sound('relic');
+    }
+  };
+  Game.fervorMul = function () {
+    const f = this.fervor;
+    return f && f.t > 0 && f.n >= 2 ? 1 + Math.min(0.5, (f.n - 1) * 0.06) : 1;
+  };
+
+  // ---- erasure: a creature broken enough becomes legible, and can be struck out entirely
+  Game.legible = function (e) {
+    return e.alive && e.kind === 'enemy' && !e.def.boss && !e.def.phantom && !e.intangible && e.hp <= e.maxHp * 0.25 && e.hp > 0;
+  };
+  Game.erase = function (e) {
+    const P = this.player;
+    const a = Math.atan2(e.y - P.y, e.x - P.x), d = Math.hypot(e.x - P.x, e.y - P.y);
+    // lunge to it
+    const reach = Math.max(0, d - e.r - 0.45);
+    this.level.move(P, Math.cos(a) * reach, Math.sin(a) * reach, 0.22, true);
+    P.a += G.angleDiff(P.a, a) * 0.7;
+    P.inv = Math.max(P.inv, 0.6);
+    P.eraseT = 0.45;
+    this.slowT = Math.max(this.slowT || 0, 0.55);
+    this.fx.hitstop = Math.max(this.fx.hitstop, 0.09);
+    e.lastHit = { dirX: Math.cos(a), dirY: Math.sin(a), erase: true, knock: 6 };
+    this.killEnemy(e, e.lastHit, 140);
+    this.burst(e.x, e.y, (e.z || 0) + e.h * 0.5, 40, [1, 0.95, 0.85], 'letters', 5);
+    this.ring(e.x, e.y, (e.z || 0) + e.h * 0.5, 0.1, 2.6, 0.45, [1, 0.95, 0.8], { glyph: GL.ch('X') });
+    this.wave(e.x, e.y, 1);
+    this.flash([1, 0.95, 0.85], 0.3);
+    this.shake(7);
+    this.sound('word');
+    P.hp = Math.min(P.maxHp, P.hp + 8 + P.maxHp * 0.04);
+    P.luc = Math.min(100, P.luc + 3);
+    if (Math.random() < 0.5) this.spawn(G.rand.pick(['verse', 'letters', 'oil']), e.x, e.y);
+    this.bigWord('ERASED', [1, 0.95, 0.85]);
+    this.fervorAdd(1);
   };
 
   Game.gainInk = function (v) {
@@ -630,6 +711,9 @@
     this.parts = [];
     this.voids = [];
     this.omens = [];
+    this.slowT = 0;
+    this.words = [];
+    this.dmgNums = [];
     this.bars = [];
     this.whispers = [];
     this.lights = [];
@@ -805,6 +889,12 @@
       this.resize();
     }
     In.pollPad();
+    // slow motion (perfect dodges, erasures): the world slows, the eye does not
+    if (this.slowT > 0 && this.state === 'play') {
+      this.slowT -= dt;
+      const k = Math.min(1, this.slowT / 0.25);
+      dt *= 1 - 0.72 * k;
+    }
     this.time += dt;
     this.frame++;
     const t0 = performance.now();
@@ -881,6 +971,14 @@
     d.sat = (lst && lst.sat ? lst.sat : 1) - (hpK < 0.35 ? (0.35 - hpK) * 1.6 : 0) - (1 - luc) * 0.25;
     d.tint = [1 + hurt * 0.15, 1 - hurt * 0.12, 1 - hurt * 0.12 + (1 - luc) * 0.06];
     d.speed = playing && this.player.dashT > 0 && !o.calm ? 0.8 : Math.max(0, d.speed - dt * 6);
+    if (playing && this.slowT > 0) {
+      // slow motion: the colour drains toward ink-blue and the edges smear
+      const k = Math.min(1, this.slowT / 0.25);
+      d.sat *= 1 - 0.55 * k;
+      d.tint = [d.tint[0] * (1 - 0.12 * k), d.tint[1], d.tint[2] * (1 + 0.15 * k)];
+      d.aberr += 0.004 * k;
+      d.vig = Math.max(d.vig, 0.75 * k);
+    }
     f.fovKick = Math.max(0, f.fovKick - dt * 40);
     f.hitMarker -= dt;
   };
@@ -934,9 +1032,18 @@
     const dash = P.dashT > 0 ? 1 : 0;
     const w = P.weapon();
     const shake = w.charge && P.charge > w.charge * 0.9 ? Math.sin(this.time * 70) * 0.003 : P.beaming ? Math.sin(this.time * 55) * 0.004 : 0;
-    v.x = bx - v.sway * 0.5 + rec * 0.01 + shake;
-    v.y = by + idle + rec * 0.06 + sw * 0.5 + dash * 0.05;
-    v.rot = -0.12 + v.sway * 1.2 - rec * 0.16 + dash * 0.12 + bx * 1.5;
+    // strafing tilts the weapon into the motion; pitching lags it a little behind the view
+    const side = -Math.sin(P.a) * P.vx + Math.cos(P.a) * P.vy;
+    v.tilt = (v.tilt || 0) + (G.clamp(side / 4.4, -1, 1) - (v.tilt || 0)) * Math.min(1, dt * 8);
+    const dp = P.pitch - (v.lastPitch === undefined ? P.pitch : v.lastPitch);
+    v.lastPitch = P.pitch;
+    v.lag = ((v.lag || 0) + G.clamp(dp * 3, -0.05, 0.05)) * Math.max(0, 1 - dt * 9);
+    // an erasure drives the weapon forward and down through the creature
+    const er = P.eraseT > 0 ? Math.sin((1 - P.eraseT / 0.45) * Math.PI) : 0;
+    const breath = Math.sin(this.time * 0.9) * 0.004 * (1 - sp);
+    v.x = bx - v.sway * 0.5 + rec * 0.01 + shake + v.tilt * 0.025 - er * 0.06;
+    v.y = by + idle + breath + rec * 0.06 + sw * 0.5 + dash * 0.05 - v.lag - er * 0.12;
+    v.rot = -0.12 + v.sway * 1.2 - rec * 0.16 + dash * 0.12 + bx * 1.5 + v.tilt * 0.14 - er * 0.5;
     v.charge = w.charge ? P.charge / w.charge : 0;
   };
 
@@ -1071,8 +1178,30 @@
         }
       }
       if (e.type === 'exitwell' && d < 0.55 && !this.bossAlive()) this.descend();
+      e.legible = e.kind === 'enemy' && this.legible(e);
+      if (d < 2.8 && e.legible) {
+        const rel = Math.abs(G.angleDiff(P.a, Math.atan2(e.y - P.y, e.x - P.x)));
+        if (rel < 0.55 && (!this.prompt || !this.prompt.erase || d < this.prompt.d)) this.prompt = { e, text: 'ERASE', erase: true, d };
+      }
     }
-    if (this.prompt && In.interact()) this.prompt.e.def.interact(this.prompt.e, this);
+    if (this.prompt && In.interact()) {
+      if (this.prompt.erase) this.erase(this.prompt.e);
+      else this.prompt.e.def.interact(this.prompt.e, this);
+    }
+    const fv = this.fervor;
+    if (fv && fv.t > 0) {
+      fv.t -= dt;
+      fv.pulse = Math.max(0, (fv.pulse || 0) - dt * 3);
+      if (fv.t <= 0) fv.n = 0;
+    }
+    if (this.dmgNums) {
+      for (const n of this.dmgNums) n.t -= dt;
+      this.dmgNums = this.dmgNums.filter((n) => n.t > 0);
+    }
+    if (this.words) {
+      for (const w of this.words) w.t -= dt;
+      this.words = this.words.filter((w) => w.t > 0);
+    }
     // separation
     for (let i = 0; i < ents.length; i++) {
       const a = ents[i];
@@ -1353,6 +1482,56 @@
     R.guide = o.guide ? 0.12 + this.dark * 0.45 : 0;
   };
 
+  // God rays: choose the two strongest visible light sources each frame and fade between them.
+  const SH_PRJ = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0 };
+  Game.pickShafts = function (dt, dl) {
+    const d = this.dsp.fx, P = this.player, st = this.level.st;
+    const slots = this.shafts || (this.shafts = [{ key: null, k: 0 }, { key: null, k: 0 }]);
+    const cand = [];
+    const consider = (key, x, y, z, c, i, rad) => {
+      const dist = Math.hypot(x - P.x, y - P.y);
+      if (dist > 16) return;
+      R.project(x, y, z, SH_PRJ);
+      if (SH_PRJ.d <= 0.4) return;
+      const u = SH_PRJ.cx / this.dsp.cols, v = SH_PRJ.cy / this.dsp.rows;
+      if (u < -0.2 || u > 1.2 || v < -0.2 || v > 1.1) return;
+      const cx = Math.floor(SH_PRJ.cx), cy = Math.floor(SH_PRJ.cy);
+      if (cx >= 0 && cy >= 0 && cx < this.dsp.cols && cy < this.dsp.rows && R.cellDepth[cy * this.dsp.cols + cx] < SH_PRJ.d - 0.6) return;
+      cand.push({ key, u, v, c, score: (i * Math.min(2, rad / 3)) / (1 + dist * 0.18) });
+    };
+    if (this.opts.shafts && !st.ink) {
+      for (const l of dl) if (l.i > 0.35) consider(l.key || l, l.x, l.y, l.z === undefined ? 0.6 : l.z, [l.r, l.g, l.b], l.i, l.rad);
+      for (const l of this.level.lights) if (!l.off) consider(l, l.x, l.y, 0.8, l.c, l.i * 0.6, l.rad);
+    }
+    cand.sort((a, b) => b.score - a.score);
+    const want = cand.slice(0, 2);
+    for (const sl of slots) {
+      const m = want.find((c) => c.key === sl.key);
+      if (m) {
+        sl.u = m.u;
+        sl.v = m.v;
+        sl.c = m.c;
+        sl.k += (Math.min(1.2, m.score) - sl.k) * Math.min(1, dt * 6);
+        m.taken = true;
+      } else sl.k = Math.max(0, sl.k - dt * 4);
+    }
+    for (const c of want) {
+      if (c.taken) continue;
+      const sl = slots.find((x) => x.k <= 0.02);
+      if (!sl) break;
+      Object.assign(sl, { key: c.key, u: c.u, v: c.v, c: c.c, k: 0 });
+    }
+    for (let i = 0; i < 2; i++) {
+      const sl = slots[i];
+      d.shaft[i * 4] = sl.u || 0;
+      d.shaft[i * 4 + 1] = sl.v || 0;
+      d.shaft[i * 4 + 2] = sl.k * (this.opts.calm ? 0.5 : 1);
+      d.shaftCol[i * 3] = sl.c ? sl.c[0] : 0;
+      d.shaftCol[i * 3 + 1] = sl.c ? sl.c[1] : 0;
+      d.shaftCol[i * 3 + 2] = sl.c ? sl.c[2] : 0;
+    }
+  };
+
   Game.renderPlay = function (dt) {
     const P = this.player, dsp = this.dsp;
     this.adaptEyes(Math.min(0.1, dt || 1 / 60));
@@ -1363,12 +1542,12 @@
     const dl = this.dynLights;
     for (const l of this.lights) {
       const k = l.life / l.max;
-      dl.push({ x: l.x, y: l.y, r: l.r, g: l.g, b: l.b, rad: l.rad, i: l.i * k });
+      dl.push({ key: l, x: l.x, y: l.y, r: l.r, g: l.g, b: l.b, rad: l.rad, i: l.i * k });
     }
     for (const e of this.ents) {
       if (!e.alive || dl.length > 12) continue;
-      if (e.type === 'exitwell') dl.push({ x: e.x, y: e.y, r: 0.6, g: 0.3, b: 1, rad: 3, i: 0.6 + 0.2 * Math.sin(this.time * 3) });
-      if (e.type === 'brazier' && e.lit) dl.push({ x: e.x, y: e.y, r: 1, g: 0.6, b: 0.25, rad: 4, i: 0.35 + 0.15 * Math.sin(this.time * 17 + e.id) });
+      if (e.type === 'exitwell') dl.push({ key: e, x: e.x, y: e.y, r: 0.6, g: 0.3, b: 1, rad: 3, i: 0.6 + 0.2 * Math.sin(this.time * 3) });
+      if (e.type === 'brazier' && e.lit) dl.push({ key: e, x: e.x, y: e.y, r: 1, g: 0.6, b: 0.25, rad: 4, i: 0.35 + 0.15 * Math.sin(this.time * 17 + e.id) });
     }
     if (this.thirdPerson && P.lanternOn) dl.push({ x: P.x, y: P.y, r: 1, g: 0.75, b: 0.4, rad: 2.5, i: 0.5 });
     // creatures' glowing parts light their surroundings
@@ -1379,11 +1558,12 @@
       if (!lg) continue;
       const d2 = (e.x - P.x) ** 2 + (e.y - P.y) ** 2;
       if (d2 > 400) continue;
-      glows.push({ d2, l: { x: e.x, y: e.y, z: (e.z || 0) + e.h * 0.7, r: lg[0], g: lg[1], b: lg[2], rad: lg[3], i: lg[4] } });
+      glows.push({ d2, l: { key: e, x: e.x, y: e.y, z: (e.z || 0) + e.h * 0.7, r: lg[0], g: lg[1], b: lg[2], rad: lg[3], i: lg[4] } });
     }
     glows.sort((a, b) => a.d2 - b.d2);
     for (let i = 0; i < glows.length && dl.length < 10; i++) dl.push(glows[i].l);
-    this.updateViewmodel(1 / 60);
+    this.updateViewmodel(Math.min(0.05, dt || 1 / 60));
+    this.pickShafts(dt || 1 / 60, dl);
     R.renderWorld(this);
     R.toCells(this, dsp);
     R.drawRings(this, dsp);
@@ -1391,6 +1571,7 @@
     R.drawLines(this, dsp);
     R.drawVoids(this, dsp);
     if (this.opts.guide && this.state !== 'descend') UI.beacons(this);
+    if (this.state === 'play' || this.state === 'pause') UI.combat(this);
     if (this.eyelid > 0) {
       UI.eyelids(this, this.eyelid);
       this.eyelid = Math.max(0, this.eyelid - (dt || 1 / 60) * 2.5);
@@ -1707,6 +1888,8 @@
         }],
         ['BRIGHTNESS', () => `${Math.round(o.bright * 100)}%`, (d) => (o.bright = Math.round(G.clamp(o.bright + d * 0.05, 0.8, 1.6) * 100) / 100)],
         ['DARK SIGHT (OUTLINES, BEACONS)', () => (o.guide ? 'ON' : 'OFF'), () => (o.guide = !o.guide)],
+        ['DAMAGE NUMBERS', () => (o.dmgNums ? 'ON' : 'OFF'), () => (o.dmgNums = !o.dmgNums)],
+        ['LIGHT SHAFTS', () => (o.shafts ? 'ON' : 'OFF'), () => (o.shafts = !o.shafts)],
         ['SHOW FRAME RATE', () => (o.fps ? 'ON' : 'OFF'), () => (o.fps = !o.fps)],
         ['BACK', () => '', null],
       ];

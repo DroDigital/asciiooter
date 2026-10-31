@@ -427,6 +427,43 @@
     }
   };
 
+  // ---- combat feedback: damage written in the air, the fervor chain, words of impact ----
+  const nprj = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0 };
+  UI.combat = function (g) {
+    const R = G.R, cols = C(), rows = Rw(), ink = g.level.st.ink;
+    if (g.opts.dmgNums && g.dmgNums) {
+      for (const n of g.dmgNums) {
+        const k = n.t / n.max;
+        R.project(n.x, n.y, n.z + (1 - k) * 0.6, nprj);
+        if (nprj.d <= 0.3) continue;
+        const s = String(Math.max(1, Math.round(n.v)));
+        const x = Math.round(nprj.cx + n.ox - s.length / 2), y = Math.floor(nprj.cy);
+        if (y < 1 || y >= rows - 4 || x < 0 || x + s.length >= cols) continue;
+        if (R.cellDepth[y * cols + Math.max(0, Math.min(cols - 1, x))] < nprj.d - 0.8) continue;
+        const a = Math.min(1, k * 2.5), big = n.v >= 40;
+        const c = ink ? [0.5 * a, 0.02, 0.05] : n.crit ? [1 * a, 0.85 * a, 0.3 * a] : big ? [1 * a, 0.45 * a, 0.25 * a] : [0.95 * a, 0.92 * a, 0.85 * a];
+        UI.text(x, y, s, c, null, (big || n.crit ? 0.8 : 0.35) * a);
+      }
+    }
+    const f = g.fervor;
+    if (f && f.t > 0 && f.n >= 2) {
+      const x = cols - 3, y = 5, p = f.pulse || 0;
+      const heat = Math.min(1, f.n / 12);
+      const c = ink ? [0.55, 0.05, 0.05] : [1, 0.75 - heat * 0.45 + p * 0.25, 0.35 - heat * 0.25 + p * 0.3];
+      UI.textR(x, y, `x${f.n} FERVOR`, c, null, 0.4 + p * 0.6);
+      const w = 12, fill = Math.round((f.t / 4) * w);
+      for (let i = 0; i < w; i++) UI.put(x - w + i, y + 1, GL.ch(i < fill ? '=' : '-'), i < fill ? c : [0.25, 0.22, 0.2], null, i < fill ? 0.3 : 0);
+      UI.textR(x, y + 2, `+${Math.round((g.fervorMul() - 1) * 100)}% DAMAGE`, [c[0] * 0.7, c[1] * 0.7, c[2] * 0.7]);
+    }
+    if (g.words && g.words.length) {
+      const w = g.words[g.words.length - 1];
+      const k = w.t / w.max, a = Math.min(1, k * 3, (1 - k) * 8);
+      const h = Math.max(3, Math.floor(rows / 14));
+      const c = ink ? [0.4 * a, 0.02, 0.02] : [w.col[0] * a, w.col[1] * a, w.col[2] * a];
+      UI.bigText(w.text, cols / 2 + (k > 0.85 ? (Math.random() - 0.5) * 2 : 0), Math.floor(rows * 0.24), h, 'braille', c, 0.6 * a);
+    }
+  };
+
   // The Oculus blinks, and you are inside the eye: lids of flesh close over the screen.
   UI.eyelids = function (g, k) {
     const cols = C(), rows = Rw() - 3, half = rows / 2;

@@ -138,6 +138,14 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
   - A Codex of creatures, 24 lore fragments and a hidden true ending.
   - Fallen Readers leave remnants on the floor where they died, for the next Reader to find.
   - Seeds are phrases (`"ASHEN CHOIR WAITS"`). Speak one to replay a run, or play the same Daily Rite as everyone else.
+- **Combat that answers back.**
+  - *Perfect dodge:* dash through a blow at the last instant and the world slows. The dash comes
+    straight back, your mind steadies, and your next shot is written in CAPITALS (double damage).
+  - *Erasure:* a creature broken below a quarter of its life becomes legible and flickers white.
+    Press `E` to lunge and strike it out of the text in slow motion; it heals you and may drop ammunition.
+  - *Fervor:* kills that follow quickly on each other build a chain worth up to +50% damage and more ink.
+  - Damage is written in the air. Controls are buffered (a dash or shot pressed a moment early still
+    happens), and the mouse uses raw input where the browser allows it.
 - **Dark sight.** Your eyes adapt to the dark: shadows lift without washing out the light. When light
   fails, the edges of walls and doorways are drawn as pale chalk lines and nearby floor shows its tiles.
   Pickups, braziers, lecterns, altars and the well carry soft beacons, and markers at the screen edge
@@ -180,11 +188,15 @@ Y lantern, bumpers switch weapons, stick-click switches camera).
      droplets that leave lasting stains on floors and walls.
    - Shockwave rings and screen ripples, footstep dust and water ripples.
    - Ambient particles in each stratum: dust in the lantern light, drips, ash, spores, and ink rising in the Lacuna.
-6. **One WebGL2 draw call** composites the cell grid from a procedurally painted glyph atlas,
-   with bloom sampled from the foreground grid, CRT curvature, scanlines, chromatic aberration,
+6. **Light in the air.** Every nearby light scatters a halo into the haze along each view ray (a
+   closed-form closest approach of the ray to the light, per sample), so muzzle flashes, fires and
+   glowing creatures hang in the air and are cut off by walls. Floors and ceilings darken where they meet
+   walls (ambient occlusion), and walls darken toward their seams.
+7. **One WebGL2 draw call** composites the cell grid from a procedurally painted glyph atlas,
+   with bloom sampled from the foreground grid, god rays toward the two strongest visible lights, CRT curvature, scanlines, chromatic aberration,
    shockwave distortion, dash speed-blur and colour grading that drains as you weaken.
 
-7. **Multithreaded.** When shared memory is available (the desktop app, or `serve.js`), the raycast is
+8. **Multithreaded.** When shared memory is available (the desktop app, or `serve.js`), the raycast is
    split into vertical strips. Worker threads and the main thread claim strips from one atomic counter
    and write straight into shared sample buffers, so a thread that is busy or late just takes fewer
    strips and a frame never waits on it. Workers keep a mirror of the level: tiles, the lightmap and wall
