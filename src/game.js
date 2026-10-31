@@ -1060,6 +1060,7 @@
     if (In.pause() || (this.wasLocked && !In.locked && !G.debug)) {
       this.wasLocked = false;
       this.state = 'pause';
+      this.pausedFrame = this.frame; // the pause screen ignores presses from this same frame
       this.st = { sel: 0 };
       A.stopLoops();
       In.unlock();
@@ -1591,7 +1592,7 @@
       UI.prompt(this);
       UI.titleCard(this);
       if (In.mapHeld()) UI.map(this);
-      if (!In.locked && !G.debug && this.time - (this.lockHintT || 0) > 0) {
+      if (!In.locked && !In.usingPad && !G.debug && this.time - (this.lockHintT || 0) > 0) {
         UI.caption(Math.floor(dsp.rows * 0.7), 'CLICK TO TAKE CONTROL OF THE MOUSE', [0.8, 0.75, 0.6], 0.3, this.level.st.ink);
       }
     }
@@ -1616,6 +1617,8 @@
   // ------------------------------------------------------------------ screens
   const ACC = [1, 0.72, 0.32];
   const DIM = [0.55, 0.52, 0.48];
+  // The seed screen's keys for a controller: 10 columns by 4 rows (SPC is a space).
+  const SEED_KEYS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 'SPC', 'DEL', 'GO', 'BACK'];
   const STATES = {
     title() {
       this.backdrop('cosmos');
@@ -1623,7 +1626,7 @@
       const h = Math.max(5, Math.floor(rows / 6));
       UI.bigText('ASCIIOOTER', cols / 2, Math.floor(rows * 0.3), h, 'blocks', (i, j, w) => [1, 0.55 + 0.35 * (j / h), 0.25 + 0.3 * Math.sin(i / w * 3 + this.time)], 0.7);
       UI.textC(Math.floor(rows * 0.3) + Math.ceil(h / 2) + 1, 'T H E   U N W R I T T E N   D E E P', [0.85, 0.75, 1], null, 0.4);
-      if (Math.sin(this.time * 3) > -0.3) UI.textC(Math.floor(rows * 0.68), 'PRESS ENTER OR CLICK TO BEGIN', ACC, null, 0.5);
+      if (Math.sin(this.time * 3) > -0.3) UI.textC(Math.floor(rows * 0.68), In.usingPad ? 'PRESS A TO BEGIN' : 'PRESS ENTER OR CLICK TO BEGIN', ACC, null, 0.5);
       UI.textC(rows - 3, 'no engine - no assets - every pixel is a letter', [0.4, 0.38, 0.45]);
       A.update(dt(), { menu: true, luc: 1, threat: 0, danger: 0, awe: 0.6 });
       if (In.anyStart()) {
@@ -1651,7 +1654,7 @@
       const y0 = Math.floor(rows * 0.33);
       const c = UI.menu(items, this.st, 0, y0, { center: true, width: 40, gap: 2, accent: ACC });
       UI.textC(rows - 4, `RUNS ${S.stats.runs}   DEATHS ${S.stats.deaths}   VICTORIES ${S.stats.wins}   DEEPEST ${S.stats.best}   SLAIN ${S.stats.kills}`, DIM);
-      UI.textC(rows - 2, D.TIPS[Math.floor(this.time / 6) % D.TIPS.length], [0.45, 0.43, 0.5]);
+      UI.textC(rows - 2, In.expand(D.TIPS[Math.floor(this.time / 6) % D.TIPS.length]), [0.45, 0.43, 0.5]);
       A.update(1 / 60, { menu: true, luc: 1, threat: 0, danger: 0, awe: 0.6 });
       if (c === 0) this.goReaders(null, false);
       else if (c === 1) this.goReaders(todaySeed(), true);
@@ -1712,18 +1715,44 @@
     },
     seed() {
       this.backdrop('cosmos', 0.4);
-      const rows = this.dsp.rows;
+      const rows = this.dsp.rows, cols = this.dsp.cols;
+      const pad = In.usingPad;
       UI.textC(Math.floor(rows * 0.3), 'SPEAK THE SEED', ACC, null, 0.5);
-      UI.textC(Math.floor(rows * 0.3) + 2, 'Type any words. The same words always open the same descent.', DIM);
+      UI.textC(Math.floor(rows * 0.3) + 2, pad ? 'Pick letters from the grid. The same words always open the same descent.' : 'Type any words. The same words always open the same descent.', DIM);
       for (const k of In.typed) {
         if (k.length === 1 && /[a-zA-Z0-9 ]/.test(k) && this.seedText.length < 40) this.seedText += k.toUpperCase();
         if (k === 'Backspace') this.seedText = this.seedText.slice(0, -1);
       }
       const blink = Math.sin(this.time * 6) > 0 ? '_' : ' ';
       UI.textC(Math.floor(rows * 0.45), `" ${this.seedText}${blink} "`, [1, 0.9, 0.7], null, 0.4);
-      UI.textC(Math.floor(rows * 0.6), 'ENTER to descend   -   ESC to return', DIM);
-      if (In.hit('Enter') && this.seedText.trim()) this.goReaders(this.seedText.trim(), false);
-      if (In.hit('Escape')) this.state = 'menu';
+      let go = In.hit('Enter'), back = In.hit('Escape');
+      if (pad) {
+        // Controller: the stick or d-pad moves over the grid and A picks the highlighted key.
+        const g = this.seedGrid || (this.seedGrid = { sel: 0 });
+        if (In.up()) g.sel = (g.sel + 30) % 40;
+        if (In.downNav()) g.sel = (g.sel + 10) % 40;
+        if (In.left()) g.sel = Math.floor(g.sel / 10) * 10 + ((g.sel + 9) % 10);
+        if (In.right()) g.sel = Math.floor(g.sel / 10) * 10 + ((g.sel + 1) % 10);
+        const key = SEED_KEYS[g.sel];
+        if (In.accept()) {
+          if (key === 'DEL') this.seedText = this.seedText.slice(0, -1);
+          else if (key === 'GO') go = true;
+          else if (key === 'BACK') back = true;
+          else if (this.seedText.length < 40) this.seedText += key === 'SPC' ? ' ' : key;
+        }
+        if (In.padPress(In.BTN.X)) this.seedText = this.seedText.slice(0, -1);
+        if (In.padPress(In.BTN.Y)) go = true;
+        if (In.padPress(In.BTN.B)) back = true;
+        const x0 = Math.floor((cols - 40) / 2), y0 = Math.floor(rows * 0.66);
+        SEED_KEYS.forEach((k, i) => {
+          const x = x0 + (i % 10) * 4, y = y0 + Math.floor(i / 10) * 2, on = i === g.sel;
+          if (on) UI.fill(x - 1, y, k.length + 2, 1, [0.25, 0.17, 0.07]);
+          UI.text(x, y, k, on ? ACC : [0.72, 0.7, 0.66], null, on ? 0.4 : 0);
+        });
+      }
+      UI.textC(Math.floor(rows * 0.6), pad ? 'A type   X delete   Y descend   B return' : 'ENTER to descend   -   ESC to return', DIM);
+      if (go && this.seedText.trim()) this.goReaders(this.seedText.trim(), false);
+      else if (back) this.state = 'menu';
     },
     scriptorium() {
       this.backdrop('cosmos', 0.4);
@@ -1916,17 +1945,24 @@
     },
     howto() {
       this.backdrop('cosmos', 0.4);
-      UI.page('HOW TO DESCEND', [
+      const controls = In.usingPad ? [
+        'MOVE  left stick           LOOK  right stick           FIRE  RT',
+        'DASH  A       INTERACT  X       LANTERN  Y       MAP  hold BACK',
+        'WEAPONS  LB / RB     LAST  B     CAMERA  R3     PAUSE  START',
+      ] : [
         'MOVE  WASD / arrows        LOOK  mouse (click to capture)       FIRE  left mouse',
         'DASH  space / right mouse  LANTERN  F     INTERACT  E     MAP  hold TAB',
         'WEAPONS  1-6, wheel, Q for last     CAMERA  V switches first / third person',
-        'PAUSE  ESC       Gamepads work too.',
+        'PAUSE  ESC       A controller works too: press any of its buttons.',
+      ];
+      UI.page('HOW TO DESCEND', [
+        ...controls,
         '',
         'Find the well on each floor and descend. Thirteen floors, eight strata: the library first, then places that were never written. Four things wait at the ends of them.',
         'VITAE is your life. LUCIDITY is your mind: darkness, gazes, songs and forbidden reading wear it down. Madness makes you hit harder, shows you walls that are lies, and fills the dark with things that are not there.',
         'OIL feeds your lantern. Some creatures only exist in light; some only in darkness.',
         'INK is kept forever. Spend it in the Scriptorium.',
-      ], 99, ACC, 'ESC to return');
+      ], 99, ACC, In.usingPad ? 'B to return' : 'ESC to return');
       if (In.back() || In.accept()) this.state = 'menu';
     },
     pause() {
@@ -1936,7 +1972,7 @@
       const items = [{ label: 'RESUME' }, { label: this.thirdPerson ? 'SWITCH TO FIRST PERSON' : 'SWITCH TO THIRD PERSON' }, { label: 'OPTIONS' }, { label: 'ABANDON THIS READER' }];
       const c = UI.menu(items, this.st, 0, Math.floor(rows * 0.42), { center: true, width: 34, gap: 2, accent: ACC });
       this.printRunInfo(Math.floor(rows * 0.42) + 10);
-      if (c === 0 || In.hit('Escape') || In.hit('KeyP')) {
+      if (c === 0 || (this.frame > this.pausedFrame && (In.pause() || In.padPress(In.BTN.B)))) {
         this.state = 'play';
         In.lock();
       } else if (c === 1) this.thirdPerson = !this.thirdPerson;
@@ -1976,7 +2012,7 @@
         if (In.mpressed[0] && mc.x >= x && mc.x < x + cw && mc.y >= y0 && mc.y < y0 + ch) chosen = i;
       });
       if (In.accept()) chosen = rs.sel;
-      UI.textC(y0 + ch + 2, 'ARROWS + ENTER, 1-' + n + ', OR CLICK', DIM);
+      UI.textC(y0 + ch + 2, In.usingPad ? 'D-PAD + A, OR 1-' + n : 'ARROWS + ENTER, 1-' + n + ', OR CLICK', DIM);
       if (chosen >= 0) {
         const id = rs.choices[chosen];
         const P = this.player;
@@ -1994,7 +2030,7 @@
     read(dt) {
       const p = this.page;
       p.t += 1 / 60;
-      UI.page(p.title, p.lines, p.t, p.accent, 'E / ENTER to close');
+      UI.page(p.title, p.lines, p.t, p.accent, In.usingPad ? 'A or B to close' : 'E / ENTER to close');
       if ((In.accept() || In.back() || In.mpressed[0]) && p.t > 0.3) {
         this.state = 'play';
         In.lock();
@@ -2013,7 +2049,7 @@
       this.printRunInfo(Math.floor(rows * 0.56));
       UI.textC(Math.floor(rows * 0.56) + 6, 'Your remnant will wait on this floor for the next Reader.', [0.55, 0.6, 0.85]);
       if (this.deadT > 1.5) {
-        UI.textC(rows - 4, 'ENTER to return to the surface', ACC, null, 0.4);
+        UI.textC(rows - 4, In.usingPad ? 'A to return to the surface' : 'ENTER to return to the surface', ACC, null, 0.4);
         if (In.accept() || In.mpressed[0]) {
           this.state = 'menu';
           this.st = { sel: 0 };
@@ -2043,7 +2079,7 @@
       UI.textC(rows - 6, `Reader ${this.run.n} reached the bottom with ${this.run.kills} creatures unwritten and ${this.run.ink} ink.`, [0.3, 0.25, 0.25], [0.925, 0.925, 0.925]);
       if (!this.save.stats.trueEnd) UI.textC(rows - 5, `Read all ${D.LORE.length} fragments to understand what you have done.`, [0.5, 0.2, 0.2], [0.925, 0.925, 0.925]);
       if (this.vicT > 8) {
-        UI.textC(rows - 3, 'ENTER to return', [0.5, 0.1, 0.1], [0.925, 0.925, 0.925]);
+        UI.textC(rows - 3, In.usingPad ? 'A to return' : 'ENTER to return', [0.5, 0.1, 0.1], [0.925, 0.925, 0.925]);
         if (In.accept() || In.mpressed[0]) {
           this.state = 'menu';
           this.st = { sel: 0 };
