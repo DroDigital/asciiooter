@@ -86,6 +86,7 @@
     p.connected = !!gp;
     if (!gp) {
       p.ax = [0, 0, 0, 0];
+      p.stickHeld = false;
       return;
     }
     const dz = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
@@ -97,7 +98,12 @@
     if (p.ax[0] < -0.6) p.b[14] = true;
     if (p.ax[0] > 0.6) p.b[15] = true;
     const pressed = p.b.some((v, i) => v && !p.prev[i]);
-    if (pressed || p.ax.some((v) => v !== 0)) In.usingPad = true;
+    // A stick counts as controller use only when it is pushed past half, on the frame it crosses that line.
+    // A stick left resting outside the dead zone must not take the device back from the keyboard.
+    const stick = [0, 1, 2, 3].some((i) => Math.abs(gp.axes[i] || 0) > 0.5);
+    const stickPushed = stick && !p.stickHeld;
+    p.stickHeld = stick;
+    if (pressed || stickPushed) In.usingPad = true;
     // A new press also tries to resume audio. Browsers only allow that once the page has had a click or key press.
     if (pressed) G.Audio.unlock();
   };

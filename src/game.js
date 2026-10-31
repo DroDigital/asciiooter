@@ -1727,14 +1727,15 @@
       UI.textC(Math.floor(rows * 0.45), `" ${this.seedText}${blink} "`, [1, 0.9, 0.7], null, 0.4);
       let go = In.hit('Enter'), back = In.hit('Escape');
       if (pad) {
-        // Controller: the stick or d-pad moves over the grid and A picks the highlighted key.
+        // Controller only: the d-pad or stick moves over the grid and A picks the highlighted key, so keyboard
+        // keys cannot change the seed.
         const g = this.seedGrid || (this.seedGrid = { sel: 0 });
-        if (In.up()) g.sel = (g.sel + 30) % 40;
-        if (In.downNav()) g.sel = (g.sel + 10) % 40;
-        if (In.left()) g.sel = Math.floor(g.sel / 10) * 10 + ((g.sel + 9) % 10);
-        if (In.right()) g.sel = Math.floor(g.sel / 10) * 10 + ((g.sel + 1) % 10);
+        if (In.padPress(In.BTN.UP)) g.sel = (g.sel + 30) % 40;
+        if (In.padPress(In.BTN.DOWN)) g.sel = (g.sel + 10) % 40;
+        if (In.padPress(In.BTN.LEFT)) g.sel = Math.floor(g.sel / 10) * 10 + ((g.sel + 9) % 10);
+        if (In.padPress(In.BTN.RIGHT)) g.sel = Math.floor(g.sel / 10) * 10 + ((g.sel + 1) % 10);
         const key = SEED_KEYS[g.sel];
-        if (In.accept()) {
+        if (In.padPress(In.BTN.A)) {
           if (key === 'DEL') this.seedText = this.seedText.slice(0, -1);
           else if (key === 'GO') go = true;
           else if (key === 'BACK') back = true;
