@@ -1561,17 +1561,35 @@
   // ---- the weapon in your hands, as a lit model in screen space ----
   const VME = { id: 7777, def: { set: 'blocks', crawl: false } };
   const VMS = { e: VME };
+  // Soft light spilled into the air around a piece of energy: additive, fading with distance.
+  function addHalo(h, px, py, cr, sr, hs, vs) {
+    const cx = px + (cr * h.x - sr * h.y) * hs, cy = py + (sr * h.x + cr * h.y) * vs;
+    const rs = h.r * (hs + vs) * 0.5, inv = 1 / (rs * rs);
+    const x0 = Math.max(X0, Math.floor(cx - rs)), x1 = Math.min(X1 - 1, Math.ceil(cx + rs));
+    const y0 = Math.max(0, Math.floor(cy - rs)), y1 = Math.min(SH - 1, Math.ceil(cy + rs));
+    const k = Math.min(0.3, h.k * 0.5), r = h.c[0] * k, g = h.c[1] * k, b = h.c[2] * k;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const dx = x + 0.5 - cx, dy = y + 0.5 - cy, q = (dx * dx + dy * dy) * inv;
+        if (q >= 1) continue;
+        const w = (1 - q) * (1 - q), i = y * SW + x;
+        sR[i] += r * w;
+        sG[i] += g * w;
+        sB[i] += b * w;
+      }
+  }
+
   R.renderViewmodel = function (game) {
-    const vm = game.vm, P = game.player;
-    if (!vm || !vm.show) return;
-    const model = G.Models.vm[P.weapons[P.cur]];
-    if (!model) return;
-    const c = vm.charge || 0, time = game.time;
+    const vm = game.vm, P = game.player, Hd = G.Hand;
+    if (!vm || !vm.show || !Hd || !Hd.ready) return;
+    const wid = P.weapons[P.cur];
+    if (Hd.wid !== wid) return;
+    const time = game.time;
     const vs = SH * 0.52;
     const hs = (vs * (R.cellH / 4)) / (R.cellW / 2);
     const px = SW * 0.63 + vm.x * SW, py = SH * 1.04 + vm.y * SH;
     const cr = Math.cos(vm.rot), sr = Math.sin(vm.rot);
-    const bx = model.box;
+    const bx = Hd.box;
     // screen bounds of the rotated model box
     let xa = 1e9, xb = -1e9, ya = 1e9, yb = -1e9;
     for (const [mx, my] of [[bx[0], bx[2]], [bx[1], bx[2]], [bx[0], bx[3]], [bx[1], bx[3]]]) {
@@ -1624,10 +1642,10 @@
     o.cr = cr;
     o.sr = sr;
     o.vm = true;
-    o.md = model.model;
+    o.md = Hd.model;
     o.p = P;
-    o.c = c;
-    o.mats = model.mats;
+    o.c = 0;
+    o.mats = Hd.mats[wid];
     o.thick = 0.05;
     o.depth = 0.05;
     o.time = time;
@@ -1635,13 +1653,14 @@
     o.dieT = 0;
     o.spawnT = 0;
     o.flash = 0;
-    o.glow = 1;
+    o.glow = 0.7;
     o.ground = false;
     o.cel = false;
     o.idx = R.sprites.length - 1;
-    o.stride = 2;
+    o.stride = 1;
     o.ember = null;
     raster(o);
+    for (const hl of Hd.halos) addHalo(hl, px, py, cr, sr, hs, vs);
   };
   // ---- convert samples into glyph cells ----
   function put(D_, ci, g, r, gg, b, br, bg, bb, gl) {
@@ -2176,6 +2195,48 @@
     }
   };
 
+  // Void bolts (the Unspoken Word's shots): a dark core ringed by turning sigils, with a trail of
+  // fading motes. Drawn at the bolt's own scale, so a distant shot reads as small.
+  const bprj = { d: 0, sx: 0, sy: 0, cx: 0, cy: 0, camX: 0 };
+  R.drawBolts = function (game, DSP) {
+    const cw = DSP.cellW, ch = DSP.cellH, t = game.time;
+    const cell = (x, y, d, g, r, gg, b, glow, add) => {
+      x = Math.floor(x);
+      y = Math.floor(y);
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return;
+      const ci = y * cols + x;
+      if (cellDepth[ci] < d - 0.3) return;
+      blendCell(DSP, ci, g, r, gg, b, glow, add);
+    };
+    for (const e of game.ents) {
+      if (e.kind !== 'proj' || !e.alive || e.visual !== 'void') continue;
+      R.project(e.x, e.y, e.z || 0.5, bprj);
+      if (bprj.d <= 0.2) continue;
+      const hx = bprj.cx, hy = bprj.cy, hd = bprj.d;
+      const rC = G.clamp((0.12 * R.cam.projX) / hd / 2, 0.7, 2.2);
+      // trail: older motes are smaller and dimmer
+      const tr = e.trail || [], n = tr.length;
+      for (let i = 0; i < n; i++) {
+        R.project(tr[i].x, tr[i].y, tr[i].z || 0.5, bprj);
+        if (bprj.d <= 0.2) continue;
+        const f = ((i + 1) / (n + 1)) * 0.7;
+        cell(bprj.cx, bprj.cy, bprj.d, G.Glyphs.id('sym:dot'), 0.55 * f, 0.2 * f, 0.9 * f, 0.3 * f, true);
+      }
+      // the core: a dense dark shade, so the bolt reads as a hole in the light
+      const ci = Math.floor(hy) * cols + Math.floor(hx);
+      if (hx >= 0 && hy >= 0 && hx < cols && hy < rows && cellDepth[ci] >= hd - 0.3)
+        put(DSP, ci, G.Glyphs.id('sh:3'), 0.22, 0.06, 0.36, 0.06, 0.01, 0.12, 0);
+      // eight sigils turn slowly around it, pulsing at different phases
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4 + t * 2.4, pulse = 0.85 + 0.15 * Math.sin(t * 7 + k);
+        cell(hx + Math.cos(a) * rC, hy + Math.sin(a) * rC * (cw / ch), hd, G.Glyphs.id('sa:' + ((k * 13 + ((t * 6) | 0)) % 96)), 0.78 * pulse, 0.36 * pulse, 1.0 * pulse, 0.6, true);
+      }
+      // a faint halo of violet around the core
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) if (dx || dy) cell(hx + dx, hy + dy, hd, G.Glyphs.id('sym:dot'), 0.12, 0.04, 0.2, 0, true);
+    }
+  };
+
   // Line effects (tracers, beams, rails), clipped at the near plane.
   function clipPoint(x0, y0, z0, x1, y1, z1, out) {
     R.project(x0, y0, z0, out);
@@ -2252,7 +2313,8 @@
       R.project(v.x, v.y, 0.5, prj);
       if (prj.d <= 0.2) continue;
       const k = 1 - v.life / v.max;
-      const rad = (v.r * R.cam.projX * (0.4 + k * 0.8)) / prj.d / 2;
+      // a void bolt's erasure is a dark hole with a sigil rim, never wider than about a third of the screen
+      const rad0 = (v.r * R.cam.projX * (0.4 + k * 0.8)) / prj.d / 2, rad = v.void ? Math.min(rad0, cols * 0.17) : rad0;
       const ry = rad * (DSP.cellW / DSP.cellH) * 1.0;
       const x0 = Math.max(0, Math.floor(prj.cx - rad - 1)), x1 = Math.min(cols - 1, Math.ceil(prj.cx + rad + 1));
       const y0 = Math.max(0, Math.floor(prj.cy - ry - 1)), y1 = Math.min(rows - 1, Math.ceil(prj.cy + ry + 1));
@@ -2263,8 +2325,9 @@
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d > 1.08) continue;
           const ci = y * cols + x;
-          if (d > 0.9) put(DSP, ci, G.Glyphs.id('sa:' + ((x * 7 + y * 3 + ((game.time * 20) | 0)) % 96)), 0.9, 0.5, 1, 0.1, 0, 0.15, 1);
+          if (v.void ? d > 0.955 && d < 1.02 : d > 0.9) put(DSP, ci, G.Glyphs.id('sa:' + ((x * 7 + y * 3 + ((game.time * 20) | 0)) % 96)), v.void ? 0.5 : 0.9, v.void ? 0.2 : 0.5, 0.9, 0.1, 0, 0.15, 1);
           else if (ink) put(DSP, ci, 0, 0, 0, 0, 0.02, 0.02, 0.02, 0);
+          else if (v.void) put(DSP, ci, 0, 0, 0, 0, 0.035, 0.02, 0.06, 0);
           else put(DSP, ci, 0, 0, 0, 0, 0.92, 0.9, 0.95, 0.4);
         }
     }

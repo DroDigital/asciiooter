@@ -229,7 +229,7 @@
       id: this.nextId++, type: 'orb', def: E.defs.orb, kind: 'proj', x: o.x, y: o.y, z: o.z || 0.5, vx: o.vx, vy: o.vy, dmg: o.dmg, team: o.team,
       life: o.life || 3, homing: o.homing || 0, col: o.col, emit: o.col, r: o.r || 0.15, h: big ? 0.7 : 0.36, w: big ? 0.7 : 0.36, glyph: o.glyph,
       blast: o.blast, alive: true, hidden: !!o.glyph, data: {}, flash: 0, vz: o.vz || 0, grav: o.grav || 0, land: o.land, src: o.src,
-      model: o.model, fire: o.fire,
+      model: o.model, fire: o.fire, visual: o.visual || null, trail: o.visual ? [] : null,
     });
     if (o.model) {
       const p = this.ents[this.ents.length - 1];
@@ -531,9 +531,9 @@
     G.Phys.impulse(this, x, y, 0.4, rad * 1.8, o.force || 9);
     const fire = !!o.fire;
     const c1 = o.col || (fire ? [1, 0.55, 0.15] : [0.9, 0.55, 1]);
-    if (!fire && !o.small) this.voids.push({ x, y, r: rad, life: 0.45, max: 0.45 });
+    if (!fire && !o.small) this.voids.push({ x, y, r: rad, life: 0.45, max: 0.45, void: !!o.voidBolt });
     this.ring(x, y, 0.05, 0.3, rad * 1.6, 0.6, c1);
-    this.ring(x, y, 0.6, 0.2, rad * 1.1, 0.45, [1, 0.9, 0.8], { glyph: GL.id('sym:star') });
+    this.ring(x, y, 0.6, 0.2, rad * 1.1, 0.45, o.voidBolt ? [0.5, 0.22, 0.85] : [1, 0.9, 0.8], { glyph: GL.id('sym:star') });
     if (fire) {
       for (let i = 0; i < 46; i++) {
         const a = G.rand.range(0, G.TAU), s = G.rand.range(1, 6);
@@ -542,19 +542,22 @@
       this.hazards.push({ x, y, r: rad * 0.55, t: 3.5, type: 'fire', dmg: 12, burnsAll: true });
       this.decal(x, y, 0, rad * 0.7, [0.03, 0.02, 0.015], 0.85, 0);
     } else this.decal(x, y, 0, rad * 0.55, [0.02, 0.01, 0.03], 0.8, 0);
-    this.sparks(x, y, 0.5, 34, 8, 0, 0, fire ? null : [0.9, 0.6, 1]);
+    // a void bolt's impact is a collapse, not a whiteout: no screen inversion, a dim violet flash and a smaller light
+    const vb = !!o.voidBolt;
+    this.sparks(x, y, 0.5, vb ? 12 : 34, vb ? 5 : 8, 0, 0, fire ? null : [0.9, 0.6, 1]);
     this.smoke(x, y, 0.3, fire ? 12 : 8, 0.6, fire ? [0.25, 0.2, 0.18] : [0.35, 0.25, 0.45], 0.9);
     for (let i = 0; i < 18; i++) {
       const a = G.rand.range(0, G.TAU), s = G.rand.range(2, 7);
       this.part({ x, y, z: 0.3, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: G.rand.range(1, 5), grav: 11, col: true, rest: 0.35, fric: 0.6, life: G.rand.range(1.5, 3), g: GL.ch(G.rand.pick(['#', '%', '*', '='])), r: 0.3, gr: 0.25, b: 0.22, lit: true, tumble: true, av: G.rand.range(-15, 15) });
     }
     this.wave(x, y, o.small ? 0.5 : 1.2);
-    this.shake(o.small ? 4 : 9);
-    if (!o.small) this.flash(fire ? [1, 0.8, 0.5] : [0.9, 0.85, 1], 0.22);
-    if (!fire && !o.small) this.fx.invert = 0.6;
+    this.shake(o.small ? 4 : vb ? 4 : 9);
+    if (!o.small) this.flash(fire ? [1, 0.8, 0.5] : vb ? [0.5, 0.3, 0.8] : [0.9, 0.85, 1], vb ? 0.07 : 0.22);
+    if (!fire && !o.small && !vb) this.fx.invert = 0.6;
     this.sound('boom', x, y);
-    this.addLight(x, y, fire ? [1, 0.6, 0.25] : [0.8, 0.5, 1], rad * 3, 2, 0.35);
-    if (!fire) this.burst(x, y, 0.5, 20, [0.85, 0.5, 1], 'sigil', 5);
+    if (vb) this.addLight(x, y, [0.7, 0.35, 1], rad * 1.4, 0.7, 0.3);
+    else this.addLight(x, y, fire ? [1, 0.6, 0.25] : [0.8, 0.5, 1], rad * 3, 2, 0.35);
+    if (!fire) this.burst(x, y, 0.5, vb ? 9 : 20, [0.85, 0.5, 1], 'sigil', 5);
   };
 
   // Shootable things: props shatter, casks explode.
@@ -1045,6 +1048,7 @@
     v.y = by + idle + breath + rec * 0.06 + sw * 0.5 + dash * 0.05 - v.lag - er * 0.12;
     v.rot = -0.12 + v.sway * 1.2 - rec * 0.16 + dash * 0.12 + bx * 1.5 + v.tilt * 0.14 - er * 0.5;
     v.charge = w.charge ? P.charge / w.charge : 0;
+    if (G.Hand) G.Hand.animate(this, dt);
   };
 
   // A reduced world update for transitions (particles keep falling, nothing attacks).
@@ -1317,12 +1321,21 @@
         return this.projEnd(e, true);
       }
     }
+    if (e.trail) {
+      e.trail.push({ x: e.x, y: e.y, z: e.z });
+      if (e.trail.length > 8) e.trail.shift();
+    }
     if (e.glyph) {
       this.part({ x: e.x, y: e.y, z: e.z, g: e.glyph, r: e.col[0], gr: e.col[1], b: e.col[2], life: 0.034, glow: 0.8, fade: false });
       if (this.frame % 2) this.part({ x: e.x, y: e.y, z: e.z, g: e.glyph, r: e.col[0] * 0.5, gr: e.col[1] * 0.5, b: e.col[2] * 0.6, life: 0.18, glow: 0.3, add: true });
+    } else if (e.visual === 'void') {
+      // a void bolt leaves small sigils behind it; its shape is drawn in drawBolts
+      if (Math.random() < 0.45) this.part({ x: e.x, y: e.y, z: e.z, vz: 0.1, life: 0.35, g: GL.id('sa:' + (this.frame % 96)), r: 0.7, gr: 0.3, b: 1, add: true, glow: 0.4 });
     } else if (Math.random() < 0.6) this.part({ x: e.x, y: e.y, z: e.z, vz: 0.3, life: 0.3, g: GL.ch(G.rand.chance(0.5) ? '.' : '*'), r: e.col[0], gr: e.col[1], b: e.col[2], add: true, glow: 0.6, size: e.blast ? 0.35 : 0 });
     if (e.glyph) {
       /* letters cast no light */
+    } else if (e.visual === 'void') {
+      if (this.dynLights.length < 10) this.dynLights.push({ x: e.x, y: e.y, r: 0.7, g: 0.3, b: 1, rad: 1.6, i: 0.3 });
     } else if (this.dynLights.length < 10) this.dynLights.push({ x: e.x, y: e.y, r: e.col[0], g: e.col[1], b: e.col[2], rad: e.blast ? 4 : 2.2, i: 0.8 });
   };
   Game.projEnd = function (e, hit) {
@@ -1338,7 +1351,9 @@
       if (e.def.model) G.Phys.shatter(this, e, 4, 0, 0, 90);
       return;
     }
-    if (e.blast) return this.explode(e.x, e.y, e.blast, e.dmg, { fire: e.fire, team: e.team, pdmg: e.dmg * 0.5 });
+    // a void bolt collapses inward on impact before it erases what it reached
+    if (e.visual === 'void') this.ring(e.x, e.y, e.z, 2.4, 0.05, 0.4, [0.7, 0.3, 1], { glyph: GL.id('sym:ring') });
+    if (e.blast) return this.explode(e.x, e.y, e.blast, e.dmg, { fire: e.fire, team: e.team, pdmg: e.dmg * 0.5, voidBolt: e.visual === 'void' });
     if (hit) {
       if (e.glyph) this.burst(e.x, e.y, e.z, 2, e.col, 'letters', 1.5);
       else {
@@ -1569,6 +1584,7 @@
     R.toCells(this, dsp);
     R.drawRings(this, dsp);
     R.drawParticles(this, dsp);
+    R.drawBolts(this, dsp);
     R.drawLines(this, dsp);
     R.drawVoids(this, dsp);
     if (this.opts.guide && this.state !== 'descend') UI.beacons(this);

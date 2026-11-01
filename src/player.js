@@ -332,10 +332,10 @@
       const cost = w.cost * p.mods.wordCost;
       g.loseLucidity(cost, 'word');
       const a = g.aimA;
-      g.proj({ x: p.x + Math.cos(a) * 0.4, y: p.y + Math.sin(a) * 0.4, z: 0.5, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, dmg: w.dmg * p.damageMul(), team: 'player', life: 3, col: [0.8, 0.3, 1], r: 0.25, blast: w.radius, big: true });
+      g.proj({ x: p.x + Math.cos(a) * 0.4, y: p.y + Math.sin(a) * 0.4, z: 0.5, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, dmg: w.dmg * p.damageMul(), team: 'player', life: 3, col: [0.72, 0.34, 1], r: 0.12, blast: w.radius, visual: 'void' });
       g.sound('word');
-      muzzle(g, p, w, 1);
-      g.flash([0.6, 0.2, 0.8], 0.15);
+      muzzle(g, p, w, 0.55);
+      g.flash([0.6, 0.2, 0.8], 0.06);
       g.playerShot(w.dmg);
     },
   };
