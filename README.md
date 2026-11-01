@@ -118,13 +118,15 @@ Browsers start sound only after a click or key press, so a controller-only playe
   - Walls have hit points. They crack as you damage them, then collapse into physical rubble and open new routes.
   - Loose props can be kicked and shot apart. Oil casks explode in chain reactions and leave burning ground.
   - Creatures burst into hundreds of physical fragments sampled from their own 3D model, in their own letters.
-- **Six weapons:**
-  - **Quill:** infinite sidearm.
-  - **Psalter:** scattergun.
-  - **Litany:** fires a sentence one letter at a time.
-  - **Lantern Lance:** burns your lantern oil as a beam.
-  - **The Unspoken Word:** costs lucidity and erases a sphere of the world.
-  - **Palimpsest:** a charged rail that writes through walls.
+- **Six weapons, one skeletal hand.** Every weapon is held by the same rigged bone hand. Each weapon
+  releases its own energy, in its own form and colour, from the palm or a fingertip:
+  - **Quill:** infinite sidearm. A gold line of light from the index finger, feathered like a nib.
+  - **Psalter:** scattergun. A fan of amber verses, one from each finger.
+  - **Litany:** fires a sentence one letter at a time. A double helix of icy script climbs from the palm.
+  - **Lantern Lance:** burns your lantern oil as a beam. A lantern flame over a fist, and a column of gold light when it fires.
+  - **The Unspoken Word:** costs lucidity and erases a sphere of the world. A void the size of a fist, ringed by runes, that re-forms as it recovers; its shot is a small dark sigil that collapses into the dark when it lands.
+  - **Palimpsest:** a charged rail that writes through walls. Script coils round the index finger and tightens as it charges.
+- The hand animates on every action: it breathes when idle, swings while walking, kicks on each shot, flinches when hit, splays on a dash, clenches on an erasure and dips when you switch weapons.
 - **Lucidity, not a second health bar.** Darkness, gazes, songs and forbidden reading erode it.
   Madness raises your damage and reveals walls that are lies (secret vaults), but it also
   corrupts the screen and fills the dark with phantasms. The margins whisper, and their
@@ -176,7 +178,8 @@ Browsers start sound only after a click or key press, so a controller-only playe
      with ink outlines at silhouettes and material boundaries. Outlines are drawn as shape-matched
      line glyphs (`/`, `|`, `_`), so they read as comic ink strokes made of ASCII.
    - Things on the ground cast soft contact shadows. Glowing eyes, mouths and wounds light the walls around them.
-   - The weapon in your hands is a shaded model too. It bobs, sways with your aim, kicks with recoil,
+   - The hand is a shaded model too. Its fingers are rigged joint by joint and driven by springs, so they overshoot and settle. The energy each weapon releases is drawn as glowing shapes,
+     with a soft halo in the air around them. The whole hand bobs, sways with your aim, kicks with recoil,
      lowers when you switch, and flashes at the muzzle.
 3. **Shape-matched glyphs.** At startup every glyph's ink coverage is measured on a 2x4 grid.
    For each style this builds a 256-entry table from "which of the 8 samples are lit" to the
@@ -221,7 +224,8 @@ On a 4-core machine at 1920x1080, a threaded frame costs 30–50% less than a si
 | `src/render-worker.js` | a render thread: raycasts claimed strips into the shared sample buffers |
 | `src/level.js` | level structure, portals, collision, lighting, flow fields, procedural generation |
 | `src/entities.js` | creature behaviours, bosses, pickups, props |
-| `src/models.js` | distance-field models, materials, lights and small effects for everything, plus the held weapons |
+| `src/models.js` | distance-field models, materials, lights and small effects for creatures, bosses, pickups and props |
+| `src/hand.js` | the skeletal hand: finger rig, springs for each action, and the energy each weapon releases |
 | `src/bestiary.js` | the twelve newer creatures (models and movesets), mines, thrown debris, spores and oil casks |
 | `src/dimensions.js` | the creatures and bosses of the Folded Geometry, the Prism Abyss and the Inside of the Eye |
 | `src/physics.js` | colliding particles, impulses, creatures shattering into fragments, destructible walls, pushable bodies, hazards and shockwaves |

@@ -131,6 +131,13 @@ text, and the thing beneath it is erasing it.
   per sample, the 3D closest approach of the view ray (clamped to the surface depth) gives a Gaussian
   halo. God rays are a 14-tap radial blur of bright cells toward up to two sources chosen on the CPU
   (visible, unoccluded, scored by intensity and distance) and faded between frames.
+- **The hand:** one bone hand for every weapon, rigged with five curled fingers and a thumb, a spread, and
+  springs that overshoot and settle. Each frame the rig is laid out as capsules, binned into a uniform grid,
+  and sampled per pixel like any other model. The energy each weapon releases is part of the same field,
+  with its own emissive colours; a soft additive halo lights the air around it. Actions are impulses into the
+  springs (a shot kicks, a blow flinches) or targets that hold while they last (dash, erase, switch, beam,
+  charge, walking). The Unspoken Word's bolt is drawn as glyphs, a dark core with turning sigils and a short
+  trail, and its impact collapses the erased area into a dark hole rather than a flash.
 - **Feel:** a perfect dodge (hit during the first 0.26 s of a dash) slows the world to about a quarter
   speed for a second. Erasures, fervor chains, damage numbers, input buffering (dash 0.16 s, fire 0.15 s)
   and raw pointer-lock input make the moment-to-moment combat sharper. The held weapon tilts with
